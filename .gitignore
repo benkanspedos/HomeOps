@@ -1,0 +1,29 @@
+﻿# Dependencies
+node_modules/
+vendor/
+packages/
+
+# Build outputs
+dist/
+build/
+out/
+*.exe
+*.dll
+
+# Environment
+.env
+.env.local
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+temp/
+cache/
