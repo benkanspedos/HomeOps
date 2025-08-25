@@ -1,0 +1,922 @@
+openapi: 3.0.3
+info:
+  title: HomeOps API Specification
+  description: Comprehensive API specification for the HomeOps Personal AI Operating System
+  version: 1.0.0
+  contact:
+    name: HomeOps Development Team
+    email: admin@homeops.local
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.homeops.local/v1
+    description: Production server
+  - url: http://localhost:3000/v1
+    description: Development server
+
+security:
+  - bearerAuth: []
+  - apiKey: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+  schemas:
+    Error:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          example: "VALIDATION_ERROR"
+        message:
+          type: string
+          example: "Invalid request parameters"
+        details:
+          type: object
+          additionalProperties: true
+
+    Success:
+      type: object
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Operation completed successfully"
+        data:
+          type: object
+
+    HealthStatus:
+      type: object
+      properties:
+        service:
+          type: string
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        uptime:
+          type: integer
+        version:
+          type: string
+        checks:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              status:
+                type: string
+              responseTime:
+                type: integer
+
+    ConversationRequest:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Natural language input from user
+        context:
+          type: object
+          description: Optional context for conversation
+        sessionId:
+          type: string
+          description: Session ID for conversation continuity
+
+    ConversationResponse:
+      type: object
+      properties:
+        response:
+          type: string
+          description: AI-generated response
+        actions:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              status:
+                type: string
+              result:
+                type: object
+        sessionId:
+          type: string
+        metadata:
+          type: object
+
+    SystemMetrics:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        cpu:
+          type: object
+          properties:
+            usage:
+              type: number
+            temperature:
+              type: number
+        memory:
+          type: object
+          properties:
+            used:
+              type: integer
+            total:
+              type: integer
+            percentage:
+              type: number
+        disk:
+          type: object
+          properties:
+            used:
+              type: integer
+            total:
+              type: integer
+            percentage:
+              type: number
+        network:
+          type: object
+          properties:
+            download:
+              type: number
+            upload:
+              type: number
+            latency:
+              type: number
+
+    FinancialAccount:
+      type: object
+      properties:
+        id:
+          type: string
+        institution:
+          type: string
+        accountType:
+          type: string
+          enum: [checking, savings, credit, investment, crypto]
+        balance:
+          type: number
+        currency:
+          type: string
+        lastUpdated:
+          type: string
+          format: date-time
+
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+        accountId:
+          type: string
+        date:
+          type: string
+          format: date
+        amount:
+          type: number
+        description:
+          type: string
+        category:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+
+    MediaItem:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [movie, tv_show, music, podcast]
+        title:
+          type: string
+        status:
+          type: string
+          enum: [available, downloading, processing, failed]
+        quality:
+          type: string
+        size:
+          type: integer
+        metadata:
+          type: object
+
+    SmartDevice:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          enum: [light, thermostat, lock, camera, speaker, sensor]
+        room:
+          type: string
+        status:
+          type: object
+        capabilities:
+          type: array
+          items:
+            type: string
+
+    TradingAlert:
+      type: object
+      properties:
+        id:
+          type: string
+        symbol:
+          type: string
+        type:
+          type: string
+          enum: [buy, sell, stop_loss, take_profit]
+        price:
+          type: number
+        condition:
+          type: string
+        status:
+          type: string
+          enum: [active, triggered, cancelled, expired]
+        createdAt:
+          type: string
+          format: date-time
+
+paths:
+  # Health & Monitoring Endpoints
+  /health:
+    get:
+      tags:
+        - System
+      summary: Get overall system health
+      operationId: getSystemHealth
+      security: []
+      responses:
+        '200':
+          description: System health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  /metrics:
+    get:
+      tags:
+        - System
+      summary: Get system performance metrics
+      operationId: getSystemMetrics
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [1h, 6h, 24h, 7d, 30d]
+          description: Time period for metrics
+      responses:
+        '200':
+          description: System metrics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SystemMetrics'
+
+  # Central Agent Endpoints
+  /agent/conversation:
+    post:
+      tags:
+        - Agent
+      summary: Send message to central agent
+      operationId: sendAgentMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConversationRequest'
+      responses:
+        '200':
+          description: Agent response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationResponse'
+
+  /agent/sessions:
+    get:
+      tags:
+        - Agent
+      summary: List conversation sessions
+      operationId: getConversationSessions
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      type: object
+                  total:
+                    type: integer
+
+  /agent/delegates:
+    get:
+      tags:
+        - Agent
+      summary: List available sub-agents
+      operationId: getSubAgents
+      responses:
+        '200':
+          description: Available sub-agents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    capabilities:
+                      type: array
+                      items:
+                        type: string
+                    status:
+                      type: string
+
+  # Financial Management Endpoints
+  /financial/accounts:
+    get:
+      tags:
+        - Financial
+      summary: List all financial accounts
+      operationId: getFinancialAccounts
+      responses:
+        '200':
+          description: List of accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FinancialAccount'
+    
+    post:
+      tags:
+        - Financial
+      summary: Add new financial account
+      operationId: addFinancialAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - institution
+                - accountType
+              properties:
+                institution:
+                  type: string
+                accountType:
+                  type: string
+                credentials:
+                  type: object
+      responses:
+        '201':
+          description: Account added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancialAccount'
+
+  /financial/accounts/{accountId}/sync:
+    post:
+      tags:
+        - Financial
+      summary: Sync account data
+      operationId: syncFinancialAccount
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sync initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+
+  /financial/transactions:
+    get:
+      tags:
+        - Financial
+      summary: Get transactions
+      operationId: getTransactions
+      parameters:
+        - name: accountId
+          in: query
+          schema:
+            type: string
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: category
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Transaction'
+
+  /financial/budgets:
+    get:
+      tags:
+        - Financial
+      summary: Get budget information
+      operationId: getBudgets
+      responses:
+        '200':
+          description: Budget data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  budgets:
+                    type: array
+                    items:
+                      type: object
+                  spending:
+                    type: object
+                  alerts:
+                    type: array
+                    items:
+                      type: object
+
+  # Trading Endpoints
+  /trading/alerts:
+    get:
+      tags:
+        - Trading
+      summary: Get trading alerts
+      operationId: getTradingAlerts
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, triggered, all]
+      responses:
+        '200':
+          description: Trading alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TradingAlert'
+    
+    post:
+      tags:
+        - Trading
+      summary: Create trading alert
+      operationId: createTradingAlert
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - symbol
+                - type
+                - condition
+              properties:
+                symbol:
+                  type: string
+                type:
+                  type: string
+                condition:
+                  type: string
+                price:
+                  type: number
+      responses:
+        '201':
+          description: Alert created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TradingAlert'
+
+  /trading/portfolio:
+    get:
+      tags:
+        - Trading
+      summary: Get portfolio information
+      operationId: getPortfolio
+      responses:
+        '200':
+          description: Portfolio data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalValue:
+                    type: number
+                  positions:
+                    type: array
+                    items:
+                      type: object
+                  performance:
+                    type: object
+
+  # Media Management Endpoints
+  /media/library:
+    get:
+      tags:
+        - Media
+      summary: Get media library
+      operationId: getMediaLibrary
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [movie, tv_show, music, all]
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Media items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MediaItem'
+
+  /media/download:
+    post:
+      tags:
+        - Media
+      summary: Request media download
+      operationId: requestMediaDownload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - type
+                - title
+              properties:
+                type:
+                  type: string
+                title:
+                  type: string
+                quality:
+                  type: string
+                priority:
+                  type: string
+                  enum: [low, normal, high]
+      responses:
+        '202':
+          description: Download queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  taskId:
+                    type: string
+                  status:
+                    type: string
+
+  /media/recommendations:
+    get:
+      tags:
+        - Media
+      summary: Get media recommendations
+      operationId: getMediaRecommendations
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Recommendations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  # Smart Home Endpoints
+  /smarthome/devices:
+    get:
+      tags:
+        - SmartHome
+      summary: List smart devices
+      operationId: getSmartDevices
+      parameters:
+        - name: room
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Device list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SmartDevice'
+
+  /smarthome/devices/{deviceId}/control:
+    post:
+      tags:
+        - SmartHome
+      summary: Control smart device
+      operationId: controlSmartDevice
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                command:
+                  type: string
+                parameters:
+                  type: object
+      responses:
+        '200':
+          description: Command executed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+
+  /smarthome/scenes:
+    get:
+      tags:
+        - SmartHome
+      summary: List scenes
+      operationId: getScenes
+      responses:
+        '200':
+          description: Available scenes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    devices:
+                      type: array
+                      items:
+                        type: string
+
+  /smarthome/scenes/{sceneId}/activate:
+    post:
+      tags:
+        - SmartHome
+      summary: Activate scene
+      operationId: activateScene
+      parameters:
+        - name: sceneId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Scene activated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+
+  # Network Management Endpoints
+  /network/status:
+    get:
+      tags:
+        - Network
+      summary: Get network status
+      operationId: getNetworkStatus
+      responses:
+        '200':
+          description: Network status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  internet:
+                    type: object
+                    properties:
+                      connected:
+                        type: boolean
+                      speed:
+                        type: object
+                      latency:
+                        type: number
+                  dns:
+                    type: object
+                    properties:
+                      primary:
+                        type: object
+                      backup:
+                        type: object
+                  devices:
+                    type: array
+                    items:
+                      type: object
+
+  /network/dns/failover:
+    post:
+      tags:
+        - Network
+      summary: Trigger DNS failover
+      operationId: triggerDnsFailover
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target:
+                  type: string
+                  enum: [primary, backup]
+      responses:
+        '200':
+          description: Failover initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+
+  # PC Optimization Endpoints
+  /optimization/gaming/prepare:
+    post:
+      tags:
+        - Optimization
+      summary: Prepare system for gaming
+      operationId: prepareGaming
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                game:
+                  type: string
+                profile:
+                  type: string
+      responses:
+        '200':
+          description: System optimized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  optimizations:
+                    type: array
+                    items:
+                      type: string
+                  performance:
+                    type: object
+
+  /optimization/maintenance/schedule:
+    get:
+      tags:
+        - Optimization
+      summary: Get maintenance schedule
+      operationId: getMaintenanceSchedule
+      responses:
+        '200':
+          description: Maintenance tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    task:
+                      type: string
+                    schedule:
+                      type: string
+                    lastRun:
+                      type: string
+                      format: date-time
+                    nextRun:
+                      type: string
+                      format: date-time
+
+  # WebSocket Endpoints (documented but not in OpenAPI spec)
+  # ws://api.homeops.local/v1/stream/events - Real-time event stream
+  # ws://api.homeops.local/v1/stream/metrics - Live metrics stream
+  # ws://api.homeops.local/v1/agent/chat - Interactive chat session
+
+tags:
+  - name: System
+    description: System health and monitoring
+  - name: Agent
+    description: Central AI agent operations
+  - name: Financial
+    description: Financial management and tracking
+  - name: Trading
+    description: Trading alerts and portfolio
+  - name: Media
+    description: Media library and downloads
+  - name: SmartHome
+    description: Smart home device control
+  - name: Network
+    description: Network infrastructure management
+  - name: Optimization
+    description: PC and system optimization

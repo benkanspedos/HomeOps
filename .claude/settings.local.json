@@ -2,7 +2,20 @@
   "permissions": {
     "allow": [
       "Bash(powershell:*)",
-      "Bash(cmd /c:*)"
+      "Bash(cmd /c:*)",
+      "Read(/C:\\Projects\\scripts/**)",
+      "Bash(dir \"C:\\Projects\\HomeOps\\docs\\architecture\")",
+      "Read(/C:\\Projects/**)",
+      "Read(/C:\\Projects\\scripts/**)",
+      "Bash(npm install:*)",
+      "Bash(node:*)",
+      "Bash(npm run dev:*)",
+      "Bash(copy .env.local backend.env.local)",
+      "Read(/C:\\Projects/**)",
+      "Read(/C:\\Projects\\screenshots/**)",
+      "WebSearch",
+      "Read(/C:\\Projects\\screenshots/**)",
+      "Bash(docker compose:*)"
     ],
     "deny": [],
     "ask": [],

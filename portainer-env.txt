@@ -1,0 +1,18 @@
+# Environment variables for Portainer stack
+# Copy these into the Environment variables section in Portainer
+
+# NordVPN Configuration
+NORDVPN_USERNAME=NZmrSternJ14YemN2vS8Wwp7
+NORDVPN_PASSWORD=yHzRajaiucHxjTTaRt5QChRY
+NORDVPN_COUNTRY=United States
+
+# Pi-hole Configuration  
+PIHOLE_ADMIN_PASSWORD=homeops4real!
+
+# Redis Configuration
+REDIS_PASSWORD=homeops123
+
+# TimescaleDB Configuration
+TIMESCALE_USER=homeops
+TIMESCALE_PASSWORD=localdev123
+TIMESCALE_DB=homeops_metrics

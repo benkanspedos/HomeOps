@@ -1,0 +1,110 @@
+version: '3.8'
+
+services:
+  # Private browser with VPN routing
+  comet-browser:
+    build:
+      context: ./docker/browser
+      dockerfile: Dockerfile
+    container_name: homeops-comet-browser
+    hostname: private-browser
+    restart: unless-stopped
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    # Route through VPN when enabled
+    network_mode: "service:gluetun"
+    volumes:
+      - browser_data:/home/browser/Downloads
+      - browser_config:/home/browser/.config
+      # Optional: Mount local downloads folder
+      # - ./downloads:/home/browser/Downloads
+    environment:
+      - DISPLAY_WIDTH=1920
+      - DISPLAY_HEIGHT=1080
+      - VNC_PASSWORD=homeops  # Change this in production
+      - BROWSER_ARGS=--no-sandbox --disable-dev-shm-usage --disable-gpu
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "5900"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    labels:
+      - "homeops.service=browser"
+      - "homeops.priority=low"
+      - "homeops.vpn=required"
+      - "homeops.description=Private Browser with VPN Protection"
+      - "homeops.access.vnc=vnc://localhost:5900"
+      - "homeops.access.web=http://localhost:6080/vnc.html"
+      - "com.docker.compose.project=homeops"
+      - "com.docker.compose.service=private-browser"
+    # Ports are exposed through gluetun service
+
+  # Alternative: Browser without VPN (direct connection)
+  browser-direct:
+    build:
+      context: ./docker/browser
+      dockerfile: Dockerfile
+    container_name: homeops-browser-direct
+    hostname: browser-direct
+    restart: unless-stopped
+    ports:
+      - "5901:5900"  # VNC port
+      - "6081:6080"  # noVNC web port
+    volumes:
+      - browser_direct_data:/home/browser/Downloads
+      - browser_direct_config:/home/browser/.config
+    environment:
+      - DISPLAY_WIDTH=1920
+      - DISPLAY_HEIGHT=1080
+      - VNC_PASSWORD=homeops
+      - BROWSER_ARGS=--no-sandbox --disable-dev-shm-usage --disable-gpu
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "5900"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - homeops-network
+    labels:
+      - "homeops.service=browser-direct"
+      - "homeops.priority=low"
+      - "homeops.vpn=none"
+      - "homeops.description=Browser with Direct Internet Connection"
+      - "homeops.access.vnc=vnc://localhost:5901"
+      - "homeops.access.web=http://localhost:6081/vnc.html"
+      - "com.docker.compose.project=homeops"
+      - "com.docker.compose.service=browser-direct"
+
+  # Update gluetun configuration to expose browser ports
+  gluetun:
+    extends:
+      file: docker-compose.yml
+      service: gluetun
+    ports:
+      # Existing ports
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "8081:80/tcp"
+      - "6380:6379"
+      - "5433:5432"
+      - "8000:8000"
+      # Browser ports (VPN-routed browser)
+      - "5900:5900"  # VNC port for Comet browser
+      - "6080:6080"  # noVNC web port for Comet browser
+
+volumes:
+  browser_data:
+    driver: local
+  browser_config:
+    driver: local
+  browser_direct_data:
+    driver: local
+  browser_direct_config:
+    driver: local
+
+networks:
+  homeops-network:
+    external: true
