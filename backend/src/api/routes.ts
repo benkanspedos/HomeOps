@@ -7,6 +7,7 @@ import { healthRouter } from './health/health.routes';
 import nlpRouter from './nlp/nlp.routes';
 import dnsRouter from '../routes/dns.routes';
 import monitoringRouter from '../routes/monitoring.routes';
+import delegationRouter from './delegation/delegation.routes.js';
 import { authenticate } from '../middleware/auth';
 import { securityValidation } from '../middleware/validation';
 
@@ -30,6 +31,9 @@ apiRouter.use('/dns', dnsRouter); // DNS routes already include auth middleware
 
 // Monitoring routes (can be public or protected based on requirements)
 apiRouter.use('/', monitoringRouter); // Monitoring endpoints at /api/health/*, /api/alerts/*
+
+// Task Delegation routes (protected)
+apiRouter.use('/delegation', authenticate, delegationRouter);
 
 // API documentation endpoint
 apiRouter.get('/', (req, res) => {
@@ -103,6 +107,27 @@ apiRouter.get('/', (req, res) => {
           auditHistory: 'GET /api/nlp/audit/history/:userId',
           stats: 'GET /api/nlp/stats',
           health: 'GET /api/nlp/health',
+        },
+        delegation: {
+          health: 'GET /api/delegation/health',
+          status: 'GET /api/delegation/status',
+          stats: 'GET /api/delegation/stats',
+          agents: 'GET /api/delegation/agents',
+          connectedAgents: 'GET /api/delegation/agents/connected',
+          agent: 'GET /api/delegation/agents/:agentId',
+          capabilities: 'GET /api/delegation/capabilities',
+          submitTask: 'POST /api/delegation/tasks',
+          tasks: 'GET /api/delegation/tasks',
+          task: 'GET /api/delegation/tasks/:taskId',
+          taskProgress: 'GET /api/delegation/tasks/:taskId/progress',
+          errors: 'GET /api/delegation/errors',
+          taskErrors: 'GET /api/delegation/errors/task/:taskId',
+          agentErrors: 'GET /api/delegation/errors/agent/:agentId',
+          restart: 'POST /api/delegation/restart',
+          routingRules: 'GET /api/delegation/routing/rules',
+          enableRule: 'POST /api/delegation/routing/rules/:ruleId/enable',
+          disableRule: 'POST /api/delegation/routing/rules/:ruleId/disable',
+          websocketInfo: 'GET /api/delegation/websocket/info',
         },
       },
     },

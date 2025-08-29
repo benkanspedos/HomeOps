@@ -125,9 +125,17 @@ const server = httpServer.listen(PORT, async () => {
     // Initialize WebSocket service
     const webSocketService = initializeWebSocket(httpServer);
     
-    // Initialize monitoring services
-    await healthMonitor.initialize();
-    await alertService.initialize();
+    // Initialize monitoring services (optional for testing)
+    try {
+      if (!process.env.SKIP_DOCKER_SERVICES) {
+        await healthMonitor.initialize();
+      } else {
+        logger.info('Skipping Docker health monitor initialization');
+      }
+      await alertService.initialize();
+    } catch (error) {
+      logger.warn('Health monitor initialization failed, continuing without it:', error.message);
+    }
     
     // Set up alert event listeners
     healthMonitor.on('container:down', async (container) => {

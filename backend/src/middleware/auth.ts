@@ -31,6 +31,15 @@ export const authenticate = async (
 
     const decoded = jwt.verify(token, config.jwt.secret) as JWTPayload;
     
+    // In development, skip database verification for testing
+    if (config.nodeEnv === 'development' && process.env.SKIP_USER_DB_CHECK === 'true') {
+      req.user = {
+        id: decoded.userId || 'test-user',
+        email: decoded.email || 'test@homeops.com',
+      };
+      return next();
+    }
+    
     // Verify user exists in database
     const client = getSupabaseClient();
     const { data: user, error } = await client

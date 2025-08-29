@@ -15,13 +15,15 @@ import {
   Activity,
   ChevronLeft,
   ChevronRight,
-  Monitor
+  Monitor,
+  Network
 } from 'lucide-react';
 
 const menuItems = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Services', href: '/dashboard/services', icon: Server },
   { name: 'System Monitoring', href: '/monitoring', icon: Monitor, badge: 'new' },
+  { name: 'Task Delegation', href: '/delegation', icon: Network, badge: 'new' },
   { name: 'Accounts', href: '/accounts', icon: DollarSign },
   { name: 'Alerts', href: '/alerts', icon: Bell },
   { name: 'Automations', href: '/automations', icon: Bot },
