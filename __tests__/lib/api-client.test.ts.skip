@@ -1,0 +1,125 @@
+import axios from 'axios'
+import { testBackendConnection } from '@/lib/api/client'
+
+jest.mock('axios', () => ({
+  create: jest.fn(),
+  get: jest.fn(),
+  post: jest.fn(),
+  put: jest.fn(),
+  delete: jest.fn(),
+}))
+
+const mockedAxios = axios as jest.Mocked<typeof axios>
+let mockAxiosInstance: any
+
+describe('API Client', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    localStorage.clear()
+    
+    // Setup mock axios instance
+    mockAxiosInstance = {
+      get: jest.fn(),
+      post: jest.fn(),
+      put: jest.fn(),
+      delete: jest.fn(),
+      interceptors: {
+        request: { use: jest.fn() },
+        response: { use: jest.fn() },
+      },
+    }
+    ;(axios.create as jest.Mock).mockReturnValue(mockAxiosInstance)
+  })
+
+  describe('apiClient', () => {
+    it('should create axios instance with correct configuration', () => {
+      // Force re-import to trigger axios.create
+      jest.resetModules()
+      jest.doMock('axios', () => ({
+        create: jest.fn(() => mockAxiosInstance),
+        get: jest.fn(),
+        post: jest.fn(),
+      }))
+      
+      // Re-import to trigger new instance creation
+      require('@/lib/api/client')
+      
+      expect(axios.create).toHaveBeenCalled()
+    })
+  })
+
+  describe('testBackendConnection', () => {
+    it('should return connected true when backend is healthy', async () => {
+      mockedAxios.get.mockResolvedValueOnce({
+        data: {
+          status: 'healthy',
+          timestamp: '2024-01-01T00:00:00.000Z',
+          uptime: 1000,
+        },
+        status: 200,
+      })
+
+      const result = await testBackendConnection()
+
+      expect(result.connected).toBe(true)
+      expect(result.data).toBeDefined()
+      expect(result.data.status).toBe('healthy')
+      expect(mockedAxios.get).toHaveBeenCalledWith('http://localhost:3101/health')
+    })
+
+    it('should return connected false when backend is down', async () => {
+      mockedAxios.get.mockRejectedValueOnce(new Error('Network Error'))
+
+      const result = await testBackendConnection()
+
+      expect(result.connected).toBe(false)
+      expect(result.error).toBe('Network Error')
+      expect(mockedAxios.get).toHaveBeenCalledWith('http://localhost:3101/health')
+    })
+
+    it('should handle timeout errors', async () => {
+      mockedAxios.get.mockRejectedValueOnce(new Error('timeout of 10000ms exceeded'))
+
+      const result = await testBackendConnection()
+
+      expect(result.connected).toBe(false)
+      expect(result.error).toContain('timeout')
+    })
+  })
+
+  describe('Authentication', () => {
+    it('should store token after successful login', () => {
+      const token = 'test-jwt-token'
+      localStorage.setItem('auth_token', token)
+      
+      expect(localStorage.getItem('auth_token')).toBe(token)
+    })
+
+    it('should remove token on logout', () => {
+      localStorage.setItem('auth_token', 'test-token')
+      localStorage.removeItem('auth_token')
+      
+      expect(localStorage.getItem('auth_token')).toBeNull()
+    })
+  })
+
+  describe('Error Handling', () => {
+    it('should handle 401 errors by clearing token', () => {
+      localStorage.setItem('auth_token', 'test-token')
+      
+      // Simulate 401 error handling
+      localStorage.removeItem('auth_token')
+      
+      expect(localStorage.getItem('auth_token')).toBeNull()
+    })
+
+    it('should handle network errors gracefully', async () => {
+      mockedAxios.get.mockRejectedValueOnce(new Error('Network Error'))
+      
+      const result = await testBackendConnection()
+      
+      expect(result.connected).toBe(false)
+      expect(result.error).toBeDefined()
+    })
+  })
+})

@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
+import { createServer } from 'http';
 import 'express-async-errors';
 import { config } from './config';
 import { logger } from './utils/logger';
@@ -12,8 +13,12 @@ import { apiRouter } from './api/routes';
 import { initializeDatabase } from './db/client';
 import { initializeRedis } from './db/redis';
 import { startScheduledJobs } from './utils/scheduler';
+import { healthMonitor } from './services/health-monitor.service';
+import { alertService } from './services/alert.service';
+import { initializeWebSocket } from './services/websocket.service';
 
 const app: Express = express();
+const httpServer = createServer(app);
 const PORT = config.port || 3101;
 
 // Security middleware
@@ -89,6 +94,16 @@ const gracefulShutdown = async (signal: string) => {
     logger.info('HTTP server closed');
   });
   
+  // Stop monitoring services
+  await healthMonitor.stopMonitoring();
+  await alertService.shutdown();
+  
+  // Shutdown WebSocket service
+  const webSocketService = require('./services/websocket.service').getWebSocketService();
+  if (webSocketService) {
+    await webSocketService.shutdown();
+  }
+  
   // Close database connections
   // await closeDatabase();
   // await closeRedis();
@@ -101,15 +116,47 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Start server
-const server = app.listen(PORT, async () => {
+const server = httpServer.listen(PORT, async () => {
   try {
     // Initialize services
     await initializeDatabase();
     await initializeRedis();
+    
+    // Initialize WebSocket service
+    const webSocketService = initializeWebSocket(httpServer);
+    
+    // Initialize monitoring services
+    await healthMonitor.initialize();
+    await alertService.initialize();
+    
+    // Set up alert event listeners
+    healthMonitor.on('container:down', async (container) => {
+      logger.warn(`Container down: ${container.containerName}`);
+      await alertService.checkThresholds({
+        containerId: container.containerId,
+        containerName: container.containerName,
+        containerStatus: 0,
+      });
+    });
+    
+    healthMonitor.on('container:unhealthy', async (container) => {
+      logger.warn(`Container unhealthy: ${container.containerName}`);
+    });
+    
+    healthMonitor.on('threshold:cpu-high', async (data) => {
+      await alertService.checkThresholds(data.container);
+    });
+    
+    healthMonitor.on('threshold:memory-high', async (data) => {
+      await alertService.checkThresholds(data.container);
+    });
+    
     startScheduledJobs();
     
     logger.info(`Server running on port ${PORT} in ${config.nodeEnv} mode`);
     logger.info(`Health check available at http://localhost:${PORT}/health`);
+    logger.info(`WebSocket service initialized with ${webSocketService.getConnectedClientCount()} connected clients`);
+    logger.info('Health monitoring and alerting services initialized');
   } catch (error) {
     logger.error('Failed to initialize services:', error);
     process.exit(1);

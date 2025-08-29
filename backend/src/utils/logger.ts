@@ -44,6 +44,31 @@ export const logger = winston.createLogger({
   ],
 });
 
+// Logger class for service-specific logging
+export class Logger {
+  private context: string;
+
+  constructor(context: string) {
+    this.context = context;
+  }
+
+  info(message: string, meta?: any): void {
+    logger.info(`[${this.context}] ${message}`, meta);
+  }
+
+  error(message: string, error?: any): void {
+    logger.error(`[${this.context}] ${message}`, { error: error?.message || error });
+  }
+
+  warn(message: string, meta?: any): void {
+    logger.warn(`[${this.context}] ${message}`, meta);
+  }
+
+  debug(message: string, meta?: any): void {
+    logger.debug(`[${this.context}] ${message}`, meta);
+  }
+}
+
 // Create stream for Morgan HTTP logger
 export const httpLogStream = {
   write: (message: string) => {

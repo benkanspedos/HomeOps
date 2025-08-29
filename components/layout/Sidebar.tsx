@@ -11,19 +11,21 @@ import {
   Bell,
   Bot,
   Settings,
-  Network,
+  Shield,
   Activity,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Monitor
 } from 'lucide-react';
 
 const menuItems = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Services', href: '/services', icon: Server },
+  { name: 'Services', href: '/dashboard/services', icon: Server },
+  { name: 'System Monitoring', href: '/monitoring', icon: Monitor, badge: 'new' },
   { name: 'Accounts', href: '/accounts', icon: DollarSign },
   { name: 'Alerts', href: '/alerts', icon: Bell },
   { name: 'Automations', href: '/automations', icon: Bot },
-  { name: 'DNS', href: '/dns', icon: Network },
+  { name: 'DNS Management', href: '/dns', icon: Shield },
   { name: 'Health', href: '/health', icon: Activity },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
@@ -56,14 +58,15 @@ export function Sidebar() {
         <nav className="flex-1 px-2 py-4 space-y-1">
           {menuItems.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.href;
+            const isActive = pathname === item.href || 
+              (item.href === '/monitoring' && pathname.startsWith('/monitoring'));
             
             return (
               <Link
                 key={item.name}
                 href={item.href}
                 className={clsx(
-                  'flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors',
+                  'flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors relative',
                   isActive
                     ? 'bg-primary-100 text-primary-700 dark:bg-primary-900 dark:text-primary-300'
                     : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
@@ -71,7 +74,19 @@ export function Sidebar() {
                 title={isCollapsed ? item.name : undefined}
               >
                 <Icon className={clsx('h-5 w-5', !isCollapsed && 'mr-3')} />
-                {!isCollapsed && <span>{item.name}</span>}
+                {!isCollapsed && (
+                  <div className="flex items-center justify-between flex-1">
+                    <span>{item.name}</span>
+                    {item.badge && (
+                      <span className="ml-2 px-2 py-0.5 text-xs bg-blue-500 text-white rounded-full">
+                        {item.badge}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {isCollapsed && item.badge && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full"></span>
+                )}
               </Link>
             );
           })}

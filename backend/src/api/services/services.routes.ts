@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { dockerService } from '../../services/docker';
-import logger from '../../utils/logger';
+import { logger } from '../../utils/logger';
 
 export const servicesRouter = Router();
 

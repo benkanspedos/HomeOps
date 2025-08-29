@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Import futuristic theme */
+@import url('../styles/futuristic-theme.css');
+
+/* Import minimalistic theme - refined design */
+@import url('../styles/minimalistic-theme.css');
+
+/* Import Framer Motion animations */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
+
 @layer base {
   :root {
     --background: 0 0% 100%;

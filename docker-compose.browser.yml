@@ -7,11 +7,9 @@ services:
       context: ./docker/browser
       dockerfile: Dockerfile
     container_name: homeops-comet-browser
-    hostname: private-browser
     restart: unless-stopped
     depends_on:
-      gluetun:
-        condition: service_healthy
+      - gluetun
     # Route through VPN when enabled
     network_mode: "service:gluetun"
     volumes:

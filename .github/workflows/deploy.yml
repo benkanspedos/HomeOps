@@ -1,0 +1,292 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+env:
+  NODE_VERSION: '18'
+  DOCKER_REGISTRY: ghcr.io
+  IMAGE_NAME: homeops
+
+jobs:
+  # Run tests before deployment
+  test:
+    name: Run Tests
+    uses: ./.github/workflows/test.yml
+    secrets: inherit
+
+  # Build and push Docker images
+  build-and-push:
+    name: Build and Push Images
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: read
+      packages: write
+    
+    outputs:
+      frontend-image: ${{ steps.meta-frontend.outputs.tags }}
+      backend-image: ${{ steps.meta-backend.outputs.tags }}
+      frontend-digest: ${{ steps.build-frontend.outputs.digest }}
+      backend-digest: ${{ steps.build-backend.outputs.digest }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata for frontend
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}-frontend
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value={{tag}},enable=${{ startsWith(github.ref, 'refs/tags/') }}
+      
+      - name: Extract metadata for backend
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}-backend
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value={{tag}},enable=${{ startsWith(github.ref, 'refs/tags/') }}
+      
+      - name: Build and push frontend image
+        id: build-frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+      
+      - name: Build and push backend image
+        id: build-backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile.backend
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+  # Deploy to staging environment
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [test, build-and-push]
+    if: github.ref == 'refs/heads/main'
+    environment: staging
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Deploy to staging server
+        run: |
+          echo "Deploying to staging environment..."
+          echo "Frontend image: ${{ needs.build-and-push.outputs.frontend-image }}"
+          echo "Backend image: ${{ needs.build-and-push.outputs.backend-image }}"
+          
+          # Example deployment commands (customize for your infrastructure)
+          # ssh staging-server "docker-compose pull && docker-compose up -d"
+          
+      - name: Run smoke tests on staging
+        run: |
+          echo "Running smoke tests on staging environment..."
+          # curl -f https://staging.homeops.local/api/health
+          # npm run test:smoke:staging
+      
+      - name: Notify deployment status
+        run: |
+          echo "Staging deployment completed successfully"
+          echo "Staging URL: https://staging.homeops.local" >> $GITHUB_STEP_SUMMARY
+
+  # Deploy to production environment
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, build-and-push]
+    if: github.event_name == 'release'
+    environment: production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Deploy to production
+        run: |
+          echo "Deploying to production environment..."
+          echo "Frontend image: ${{ needs.build-and-push.outputs.frontend-image }}"
+          echo "Backend image: ${{ needs.build-and-push.outputs.backend-image }}"
+          
+          # Example deployment commands (customize for your infrastructure)
+          # kubectl set image deployment/frontend frontend=${{ needs.build-and-push.outputs.frontend-image }}
+          # kubectl set image deployment/backend backend=${{ needs.build-and-push.outputs.backend-image }}
+          # kubectl rollout status deployment/frontend
+          # kubectl rollout status deployment/backend
+      
+      - name: Run production smoke tests
+        run: |
+          echo "Running production smoke tests..."
+          # curl -f https://homeops.local/api/health
+          # npm run test:smoke:production
+      
+      - name: Update deployment status
+        run: |
+          echo "Production deployment completed successfully"
+          echo "Production URL: https://homeops.local" >> $GITHUB_STEP_SUMMARY
+
+  # Security scanning for deployed images
+  security-scan-images:
+    name: Scan Docker Images
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: always()
+    
+    steps:
+      - name: Run Trivy vulnerability scanner (Frontend)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ needs.build-and-push.outputs.frontend-image }}
+          format: 'sarif'
+          output: 'frontend-trivy-results.sarif'
+      
+      - name: Run Trivy vulnerability scanner (Backend)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ needs.build-and-push.outputs.backend-image }}
+          format: 'sarif'
+          output: 'backend-trivy-results.sarif'
+      
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: '.'
+
+  # Performance monitoring after deployment
+  performance-monitoring:
+    name: Performance Monitoring
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      
+      - name: Install Lighthouse CI
+        run: npm install -g @lhci/cli@0.12.x
+      
+      - name: Run Lighthouse audit on staging
+        run: |
+          lhci autorun \
+            --collect.url=https://staging.homeops.local \
+            --collect.url=https://staging.homeops.local/dns \
+            --collect.url=https://staging.homeops.local/dashboard \
+            --upload.target=temporary-public-storage
+        env:
+          LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
+      
+      - name: Monitor API performance
+        run: |
+          echo "Monitoring API performance..."
+          # Custom performance monitoring script
+          # node scripts/performance-monitor.js --url=https://staging.homeops.local/api
+
+  # Database migrations (if needed)
+  database-migration:
+    name: Database Migration
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    if: github.ref == 'refs/heads/main'
+    environment: production-db
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      
+      - name: Run database migrations
+        run: |
+          cd backend
+          npm ci
+          npm run migrate:production
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+
+  # Notify team on deployment completion
+  notification:
+    name: Deployment Notification
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: always()
+    
+    steps:
+      - name: Notify Slack
+        uses: 8398a7/action-slack@v3
+        if: always()
+        with:
+          status: ${{ job.status }}
+          channel: '#deployments'
+          text: |
+            Deployment Status: ${{ job.status }}
+            Staging: ${{ needs.deploy-staging.result }}
+            Production: ${{ needs.deploy-production.result }}
+            Commit: ${{ github.sha }}
+            Author: ${{ github.actor }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      
+      - name: Create GitHub deployment status
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const deploymentStatus = '${{ needs.deploy-production.result }}' === 'success' ? 'success' : 'failure';
+            const environment = '${{ github.event_name }}' === 'release' ? 'production' : 'staging';
+            
+            github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: context.payload.deployment?.id || 0,
+              state: deploymentStatus,
+              environment: environment,
+              description: `Deployment to ${environment} ${deploymentStatus}`,
+            });

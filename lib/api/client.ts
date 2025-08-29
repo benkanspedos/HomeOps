@@ -161,3 +161,21 @@ class ApiClient {
 }
 
 export const apiClient = new ApiClient();
+
+// Test backend connection function
+export const testBackendConnection = async () => {
+  try {
+    // Note: Backend health endpoint is at root, not under /api
+    const response = await axios.get('http://localhost:3101/health');
+    return {
+      connected: true,
+      data: response.data,
+    };
+  } catch (error: any) {
+    console.error('Backend connection failed:', error);
+    return {
+      connected: false,
+      error: error.message || 'Connection failed',
+    };
+  }
+};
