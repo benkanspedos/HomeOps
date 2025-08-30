@@ -28,3 +28,5 @@ Thumbs.db
 temp/
 cache/
 .env.development
+docker/jellyseerr/config/logs/.machinelogs.json
+docker/qbittorrent/config/qBittorrent/ipc-socket
