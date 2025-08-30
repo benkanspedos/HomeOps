@@ -23,6 +23,9 @@ const envSchema = Joi.object({
     .valid('error', 'warn', 'info', 'debug')
     .default('info'),
   OPENAI_API_KEY: Joi.string().required(),
+  ANTHROPIC_API_KEY: Joi.string().optional(),
+  GOOGLE_AI_API_KEY: Joi.string().optional(),
+  OPENROUTER_API_KEY: Joi.string().optional(),
   NORDVPN_USERNAME: Joi.string().optional(),
   NORDVPN_PASSWORD: Joi.string().optional(),
   NORDVPN_COUNTRY: Joi.string().default('United States'),
@@ -62,6 +65,9 @@ export const config = {
     expiry: envVars.JWT_EXPIRY as string,
   },
   openaiApiKey: envVars.OPENAI_API_KEY as string,
+  anthropicApiKey: envVars.ANTHROPIC_API_KEY as string | undefined,
+  googleAiApiKey: envVars.GOOGLE_AI_API_KEY as string | undefined,
+  openrouterApiKey: envVars.OPENROUTER_API_KEY as string | undefined,
   corsOrigins: envVars.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
   logLevel: envVars.LOG_LEVEL as string,
   vpn: {

@@ -1,14 +1,3 @@
 {
-  "/_not-found/page": "app/_not-found/page.js",
-  "/api/test-backend/route": "app/api/test-backend/route.js",
-  "/chat/page": "app/chat/page.js",
-  "/api/test-styles/route": "app/api/test-styles/route.js",
-  "/(auth)/login/page": "app/(auth)/login/page.js",
-  "/dns/page": "app/dns/page.js",
-  "/monitoring/alerts/page": "app/monitoring/alerts/page.js",
-  "/monitoring/metrics/[containerId]/page": "app/monitoring/metrics/[containerId]/page.js",
-  "/page": "app/page.js",
-  "/monitoring/page": "app/monitoring/page.js",
-  "/dashboard/services/page": "app/dashboard/services/page.js",
-  "/dashboard/page": "app/dashboard/page.js"
+  "/dns-failover/page": "app/dns-failover/page.js"
 }
