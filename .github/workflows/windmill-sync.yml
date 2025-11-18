@@ -16,12 +16,13 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v3
 
-      - name: Install Official Windmill Binary
-        run: |
-          # FIXED URL: Changed 'windmill-linux' to 'wmill-linux'
-          curl -L "https://github.com/windmill-labs/windmill/releases/latest/download/wmill-linux-amd64" -o wmill
-          chmod +x wmill
-          sudo mv wmill /usr/local/bin/
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install Windmill CLI (Official NPM)
+        run: npm install -g windmill-cli
 
       - name: Sync to Windmill
         env:
@@ -33,10 +34,14 @@ jobs:
           CLEAN_ID=$(echo "$CF_ID" | tr -d '[:space:]')
           CLEAN_SECRET=$(echo "$CF_SECRET" | tr -d '[:space:]')
 
-          # 2. Set Headers for the Binary
+          # 2. Set Headers (Covering ALL formats to be safe)
+          # Format A: JSON (Used by some versions)
           export WMILL_HEADERS="{\"CF-Access-Client-Id\": \"$CLEAN_ID\", \"CF-Access-Client-Secret\": \"$CLEAN_SECRET\"}"
+          # Format B: String (Used by others)
+          export HEADERS="CF-Access-Client-Id:$CLEAN_ID,CF-Access-Client-Secret:$CLEAN_SECRET"
 
           # 3. Configure Workspace
+          # We use the token to authenticate with Windmill itself
           wmill workspace add homeops homeops https://windmill.dealsniperpro.io --token $WMILL_TOKEN
 
           # 4. Push Code
