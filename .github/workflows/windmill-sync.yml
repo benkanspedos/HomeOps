@@ -139,6 +139,7 @@ jobs:
                 \"path\": \"$script_path\",
                 \"content\": $content,
                 \"summary\": \"Synced from GitHub Actions\",
+                \"description\": \"Automatically synced from GitHub repository\",
                 \"language\": \"$language\"
               }" \
               "${WINDMILL_URL}/api/w/$WINDMILL_WORKSPACE/scripts/create")
