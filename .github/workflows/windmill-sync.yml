@@ -71,12 +71,12 @@ jobs:
           fi
 
           # Try parsing as JSON first
-          token=$(echo "$body" | jq -r '.token // empty' 2>/dev/null)
+          token=$(echo "$body" | jq -r '.token // empty' 2>/dev/null || true)
 
           # If no token from JSON, the response might be the token itself (plain text)
-          if [ -z "$token" ]; then
+          if [ -z "$token" ] || [ "$token" = "null" ]; then
             # Remove any whitespace and use the body directly as token
-            token=$(echo "$body" | tr -d '[:space:]')
+            token=$(echo "$body" | tr -d '[:space:]' || true)
 
             if [ -z "$token" ]; then
               echo "❌ Failed to extract authentication token"
@@ -90,6 +90,7 @@ jobs:
           fi
 
           echo "✅ Successfully authenticated"
+          echo "Token length: ${#token}"
           echo "WINDMILL_TOKEN=$token" >> $GITHUB_ENV
 
       - name: Sync scripts to Windmill using API
