@@ -26,26 +26,28 @@ jobs:
 
       - name: Sync to Windmill
         env:
-          # Secrets from GitHub
           WMILL_TOKEN: ${{ secrets.WMILL_TOKEN }}
           CF_ID: ${{ secrets.CLOUDFLARE_CLIENT_ID }}
           CF_SECRET: ${{ secrets.CLOUDFLARE_CLIENT_SECRET }}
-          # The "Magic Variable" - formatted as a YAML block string to prevent syntax errors
-          WMILL_HEADERS: |
-            {"CF-Access-Client-Id": "${{ secrets.CLOUDFLARE_CLIENT_ID }}", "CF-Access-Client-Secret": "${{ secrets.CLOUDFLARE_CLIENT_SECRET }}"}
         run: |
-          # 1. Verify connection (Debug step)
-          echo "Testing connection to Windmill through Cloudflare..."
-          # Note: The CLI uses WMILL_HEADERS automatically, but for curl we pass them manually
-          curl -f -I -H "CF-Access-Client-Id: $CF_ID" \
-                     -H "CF-Access-Client-Secret: $CF_SECRET" \
-                     https://windmill.dealsniperpro.io
+          # 1. Clean Variables (Strip invisible whitespace/newlines)
+          CLEAN_ID=$(echo "$CF_ID" | tr -d '[:space:]')
+          CLEAN_SECRET=$(echo "$CF_SECRET" | tr -d '[:space:]')
 
-          # 2. Configure Workspace
-          # Syntax: wmill workspace add <name> <id> <url> --token <token>
+          # 2. Debug Print (Shows first 4 chars ONLY - Safe for logs)
+          echo "DEBUG: Using Client ID starting with: ${CLEAN_ID:0:4}..."
+
+          # 3. Set Headers for CLI (Single line, strict JSON)
+          export WMILL_HEADERS="{\"CF-Access-Client-Id\": \"$CLEAN_ID\", \"CF-Access-Client-Secret\": \"$CLEAN_SECRET\"}"
+
+          # 4. Verify connection with verbose curl to see the handshake
+          echo "Testing connection..."
+          curl -v -f -I -H "CF-Access-Client-Id: $CLEAN_ID" \
+                        -H "CF-Access-Client-Secret: $CLEAN_SECRET" \
+                        https://windmill.dealsniperpro.io
+
+          # 5. Configure Workspace
           wmill workspace add homeops homeops https://windmill.dealsniperpro.io --token $WMILL_TOKEN
 
-          # 3. Push Code
+          # 6. Push Code
           wmill sync push
-          
-          # Force trigger fix
