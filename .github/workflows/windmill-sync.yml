@@ -31,8 +31,7 @@ jobs:
           CF_ID: ${{ secrets.CLOUDFLARE_CLIENT_ID }}
           CF_SECRET: ${{ secrets.CLOUDFLARE_CLIENT_SECRET }}
           # The "Magic Variable" that lets wmill CLI bypass Cloudflare Access
-          HEADERS: CF-Access-Client-Id:${{ secrets.CLOUDFLARE_CLIENT_ID }},CF-Access-Client-Secret:${{ secrets.CLOUDFLARE_CLIENT_SECRET }}
-        run: |
+          WMILL_HEADERS: '{"CF-Access-Client-Id": "${{ secrets.CLOUDFLARE_CLIENT_ID }}", "CF-Access-Client-Secret": "${{ secrets.CLOUDFLARE_CLIENT_SECRET }}"}'           run: |
           # 1. Verify connection (Debug step)
           echo "Testing connection to Windmill through Cloudflare..."
           curl -f -I -H "CF-Access-Client-Id: $CF_ID" \
