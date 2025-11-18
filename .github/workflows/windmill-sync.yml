@@ -96,10 +96,20 @@ jobs:
         working-directory: ./windmill
         run: |
           echo "Syncing scripts to Windmill workspace: $WINDMILL_WORKSPACE"
+          echo "Using token: ${WINDMILL_TOKEN:0:10}..."
+
+          # Check if f/ directory exists
+          if [ ! -d "f" ]; then
+            echo "❌ Directory 'f/' not found in $(pwd)"
+            ls -la
+            exit 1
+          fi
 
           # Find all TypeScript, Python, and Go files in f/ directory
+          script_count=0
           find f -type f \( -name "*.ts" -o -name "*.py" -o -name "*.go" \) | while read script; do
-            echo "Processing: $script"
+            script_count=$((script_count + 1))
+            echo "[$script_count] Processing: $script"
 
             # Extract script path for Windmill (remove extension)
             script_path=$(echo "$script" | sed 's/\.[^.]*$//')
@@ -117,9 +127,9 @@ jobs:
             fi
 
             # Create/update script via API
-            echo "Syncing to path: $script_path (language: $language)"
+            echo "   Syncing to path: $script_path (language: $language)"
 
-            response=$(curl -s -X POST \
+            response=$(curl -s -w "\n%{http_code}" -X POST \
               -H "Authorization: Bearer $WINDMILL_TOKEN" \
               -H "Content-Type: application/json" \
               -H "CF-Access-Client-Id: ${{ secrets.CLOUDFLARE_CLIENT_ID }}" \
@@ -132,11 +142,21 @@ jobs:
               }" \
               "${WINDMILL_URL}/api/w/$WINDMILL_WORKSPACE/scripts/create")
 
+            http_code=$(echo "$response" | tail -n1)
+            body=$(echo "$response" | sed '$d')
+
+            echo "   HTTP Status: $http_code"
+
             # Check response
-            if echo "$response" | jq -e '.path' >/dev/null 2>&1; then
-              echo "✅ Successfully synced: $script_path"
+            if [ "$http_code" -eq 200 ] || [ "$http_code" -eq 201 ]; then
+              if echo "$body" | jq -e '.path' >/dev/null 2>&1; then
+                echo "   ✅ Successfully synced: $script_path"
+              else
+                echo "   ⚠️  Response: ${body:0:200}"
+              fi
             else
-              echo "⚠️  Response: ${response:0:200}"
+              echo "   ❌ Failed with HTTP $http_code"
+              echo "   Response: ${body:0:300}"
             fi
           done
 
