@@ -51,20 +51,38 @@ jobs:
         run: |
           echo "Authenticating with Windmill..."
 
-          login_response=$(curl -s -X POST \
+          login_response=$(curl -s -w "\n%{http_code}" -X POST \
             -H "Content-Type: application/json" \
             -H "CF-Access-Client-Id: ${{ secrets.CLOUDFLARE_CLIENT_ID }}" \
             -H "CF-Access-Client-Secret: ${{ secrets.CLOUDFLARE_CLIENT_SECRET }}" \
             -d "{\"email\":\"${{ secrets.WINDMILL_EMAIL }}\",\"password\":\"${{ secrets.WINDMILL_PASSWORD }}\"}" \
             "${WINDMILL_URL}/api/auth/login")
 
-          echo "Login response (first 100 chars): ${login_response:0:100}"
+          http_code=$(echo "$login_response" | tail -n1)
+          body=$(echo "$login_response" | sed '$d')
 
-          token=$(echo "$login_response" | jq -r '.token // empty')
+          echo "HTTP Status: $http_code"
+          echo "Login response (first 200 chars): ${body:0:200}"
+
+          if [ "$http_code" -ne 200 ]; then
+            echo "❌ Authentication failed with HTTP $http_code"
+            echo "Full response: $body"
+            exit 1
+          fi
+
+          # Check if response is JSON
+          if ! echo "$body" | jq empty 2>/dev/null; then
+            echo "❌ Response is not valid JSON"
+            echo "Response might be HTML redirect or error page"
+            echo "Full response: $body"
+            exit 1
+          fi
+
+          token=$(echo "$body" | jq -r '.token // empty')
 
           if [ -z "$token" ]; then
-            echo "❌ Failed to get authentication token"
-            echo "Full response: $login_response"
+            echo "❌ Failed to extract authentication token from JSON"
+            echo "Full response: $body"
             exit 1
           fi
 
