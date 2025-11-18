@@ -70,20 +70,23 @@ jobs:
             exit 1
           fi
 
-          # Check if response is JSON
-          if ! echo "$body" | jq empty 2>/dev/null; then
-            echo "❌ Response is not valid JSON"
-            echo "Response might be HTML redirect or error page"
-            echo "Full response: $body"
-            exit 1
-          fi
+          # Try parsing as JSON first
+          token=$(echo "$body" | jq -r '.token // empty' 2>/dev/null)
 
-          token=$(echo "$body" | jq -r '.token // empty')
-
+          # If no token from JSON, the response might be the token itself (plain text)
           if [ -z "$token" ]; then
-            echo "❌ Failed to extract authentication token from JSON"
-            echo "Full response: $body"
-            exit 1
+            # Remove any whitespace and use the body directly as token
+            token=$(echo "$body" | tr -d '[:space:]')
+
+            if [ -z "$token" ]; then
+              echo "❌ Failed to extract authentication token"
+              echo "Full response: $body"
+              exit 1
+            fi
+
+            echo "ℹ️  Token received as plain text (not JSON)"
+          else
+            echo "ℹ️  Token received as JSON"
           fi
 
           echo "✅ Successfully authenticated"
