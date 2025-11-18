@@ -45,4 +45,5 @@ jobs:
           wmill workspace add homeops homeops https://windmill.dealsniperpro.io --token $WMILL_TOKEN
 
           # 4. Push Code
+          cd windmill
           wmill sync push
