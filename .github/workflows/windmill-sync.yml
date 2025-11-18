@@ -26,14 +26,17 @@ jobs:
 
       - name: Sync to Windmill
         env:
-          # secrets from GitHub
+          # Secrets from GitHub
           WMILL_TOKEN: ${{ secrets.WMILL_TOKEN }}
           CF_ID: ${{ secrets.CLOUDFLARE_CLIENT_ID }}
           CF_SECRET: ${{ secrets.CLOUDFLARE_CLIENT_SECRET }}
-          # The "Magic Variable" that lets wmill CLI bypass Cloudflare Access
-          WMILL_HEADERS: '{"CF-Access-Client-Id": "${{ secrets.CLOUDFLARE_CLIENT_ID }}", "CF-Access-Client-Secret": "${{ secrets.CLOUDFLARE_CLIENT_SECRET }}"}'           run: |
+          # The "Magic Variable" - formatted as a YAML block string to prevent syntax errors
+          WMILL_HEADERS: |
+            {"CF-Access-Client-Id": "${{ secrets.CLOUDFLARE_CLIENT_ID }}", "CF-Access-Client-Secret": "${{ secrets.CLOUDFLARE_CLIENT_SECRET }}"}
+        run: |
           # 1. Verify connection (Debug step)
           echo "Testing connection to Windmill through Cloudflare..."
+          # Note: The CLI uses WMILL_HEADERS automatically, but for curl we pass them manually
           curl -f -I -H "CF-Access-Client-Id: $CF_ID" \
                      -H "CF-Access-Client-Secret: $CF_SECRET" \
                      https://windmill.dealsniperpro.io
