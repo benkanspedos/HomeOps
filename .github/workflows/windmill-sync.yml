@@ -16,13 +16,14 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v3
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '20'
-
-      - name: Install Windmill CLI
-        run: npm install -g windmill-cli
+      # We don't even need Node.js anymore!
+      
+      - name: Install Official Windmill Binary
+        run: |
+          # Download the latest standalone binary (Rust version)
+          curl -L "https://github.com/windmill-labs/windmill/releases/latest/download/windmill-linux-amd64" -o wmill
+          chmod +x wmill
+          sudo mv wmill /usr/local/bin/
 
       - name: Sync to Windmill
         env:
@@ -34,19 +35,12 @@ jobs:
           CLEAN_ID=$(echo "$CF_ID" | tr -d '[:space:]')
           CLEAN_SECRET=$(echo "$CF_SECRET" | tr -d '[:space:]')
 
-          # 2. The "Config File" Trick
-          # We write the headers directly to the CLI's expected config location
-          mkdir -p ~/.config/windmill
-          echo "headers = { \"CF-Access-Client-Id\": \"$CLEAN_ID\", \"CF-Access-Client-Secret\": \"$CLEAN_SECRET\" }" > ~/.config/windmill/config.toml
-          
-          # Also set the env var just in case
+          # 2. Set Headers for the Binary
+          # The Rust binary reliably picks up this env var
           export WMILL_HEADERS="{\"CF-Access-Client-Id\": \"$CLEAN_ID\", \"CF-Access-Client-Secret\": \"$CLEAN_SECRET\"}"
 
-          # 3. Verify connection (We know this works now!)
-          echo "Connection verified (HTTP 200 OK)"
-
-          # 4. Configure Workspace
+          # 3. Configure Workspace
           wmill workspace add homeops homeops https://windmill.dealsniperpro.io --token $WMILL_TOKEN
 
-          # 5. Push Code
+          # 4. Push Code
           wmill sync push
