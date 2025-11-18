@@ -1,0 +1,153 @@
+summary: "ATOM Trading Pipeline - Complete 3-Agent Orchestration"
+description: |
+  Complete ATOM trading pipeline with 3-agent orchestration:
+  1. Scanner Agent: Scans 1,000 stocks → finds ~294 POTENTIAL signals (2-3 min)
+  2. Triage Agent: Filters to ~45 PRIMED candidates with AI pre-screen (4-5 min)
+  3. Reasoner Agent: Deep AI analysis → final GO/STANDBY/NO-GO decisions (8-10 min)
+
+  Total Runtime: ~15-18 minutes for complete market scan
+  Output: Trading signals ready for execution
+
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    market_hours_only:
+      type: boolean
+      default: true
+      description: "Only execute during market hours (9:30 AM - 4:00 PM ET)"
+    max_signals_to_process:
+      type: number
+      default: 1000
+      description: "Maximum number of symbols to scan"
+  required: []
+
+# ============================================================================
+# FLOW STEPS (Sequential Execution)
+# ============================================================================
+
+value:
+  # Step 1: Scanner Agent (Phase 1-4)
+  # Scans 1,000 stocks → Finds ~294 POTENTIAL signals
+  modules:
+    - id: "scanner_agent"
+      summary: "Scanner Agent - Phase 1-4 (Market Scan)"
+      value:
+        type: "script"
+        path: "f/atom/1_scanner"
+        input_transforms: {}
+        timeout: 300  # 5 minutes timeout
+      suspend:
+        required_events: 0
+        timeout: 0
+
+    # Step 2: Triage Agent (Phase 5-8)
+    # Receives POTENTIAL signals → Filters to ~45 PRIMED candidates
+    - id: "triage_agent"
+      summary: "Triage Agent - Phase 5-8 (AI Pre-Screen)"
+      value:
+        type: "script"
+        path: "f/atom/2_triage"
+        input_transforms:
+          potentialSignals:
+            type: "javascript"
+            expr: "results.scanner_agent.potentialSignals"
+        timeout: 600  # 10 minutes timeout
+      suspend:
+        required_events: 0
+        timeout: 0
+
+    # Step 3: Reasoner Agent (Phase 9-10)
+    # Receives PRIMED candidates → Returns final GO/STANDBY/NO-GO decisions
+    - id: "reasoner_agent"
+      summary: "Reasoner Agent - Phase 9-10 (Deep AI Analysis)"
+      value:
+        type: "script"
+        path: "f/atom/3_reasoner"
+        input_transforms:
+          primedCandidates:
+            type: "javascript"
+            expr: "results.triage_agent.primedCandidates"
+        timeout: 900  # 15 minutes timeout
+      suspend:
+        required_events: 0
+        timeout: 0
+
+    # Step 4: Database Persistence (Insert Trading Signals)
+    # Saves GO signals to trading_signals table
+    # Saves STANDBY signals to standby_trades table
+    - id: "save_trading_signals"
+      summary: "Save Trading Signals to Database"
+      value:
+        type: "script"
+        path: "f/atom/4_save_signals"
+        input_transforms:
+          tradingSignals:
+            type: "javascript"
+            expr: "results.reasoner_agent.tradingSignals"
+        timeout: 60  # 1 minute timeout
+      suspend:
+        required_events: 0
+        timeout: 0
+
+    # Step 5: Slack Notification (Optional)
+    # Sends summary to Slack channel
+    - id: "notify_slack"
+      summary: "Send Pipeline Summary to Slack"
+      value:
+        type: "script"
+        path: "f/atom/5_notify_slack"
+        input_transforms:
+          scannerResults:
+            type: "javascript"
+            expr: "results.scanner_agent"
+          triageResults:
+            type: "javascript"
+            expr: "results.triage_agent"
+          reasonerResults:
+            type: "javascript"
+            expr: "results.reasoner_agent"
+        timeout: 30  # 30 seconds timeout
+      suspend:
+        required_events: 0
+        timeout: 0
+
+# ============================================================================
+# ERROR HANDLING & RETRIES
+# ============================================================================
+
+# Retry policy for transient failures
+failure_module:
+  id: "error_handler"
+  summary: "Handle Pipeline Failures"
+  value:
+    type: "script"
+    path: "f/atom/error_handler"
+    input_transforms:
+      error:
+        type: "javascript"
+        expr: "flow_input.error"
+      failed_step:
+        type: "javascript"
+        expr: "flow_input.failed_step"
+    timeout: 30
+
+# ============================================================================
+# SCHEDULE (Optional - Runs Daily at 2:00 AM ET)
+# ============================================================================
+# Uncomment below to enable scheduled execution
+#
+# schedule:
+#   cron: "0 7 * * 1-5"  # 2:00 AM ET (7:00 AM UTC) Monday-Friday
+#   timezone: "America/New_York"
+#   enabled: true
+
+# ============================================================================
+# WEBHOOKS (Optional - Manual Trigger)
+# ============================================================================
+# Enable webhook trigger for manual execution:
+# POST https://windmill.dealsniperpro.io/api/w/homeops/jobs/run/f/atom/flow_atom_pipeline
+
+ws_error_handler_muted: false
+visible_to_runner_only: false
+tag: "production"

@@ -1,0 +1,17 @@
+{
+  "name": "@homeops/windmill-atom-agents",
+  "version": "1.0.0",
+  "description": "Windmill deployment package for ATOM financial trading agents",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.78.0",
+    "@alpacahq/alpaca-trade-api": "^3.0.3",
+    "axios": "^1.12.2",
+    "date-fns": "^3.6.0",
+    "ollama": "^0.6.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
