@@ -1,4 +1,4 @@
-name: Windmill IaC Sync
+name: Windmill Sync (Cloudflare-Protected)
 
 on:
   push:
@@ -9,41 +9,139 @@ on:
       - '.github/workflows/windmill-sync.yml'
   workflow_dispatch:
 
+env:
+  WINDMILL_URL: https://windmill.dealsniperpro.io
+  WINDMILL_WORKSPACE: homeops
+
 jobs:
-  sync:
+  sync-to-windmill:
+    name: Sync to Windmill (via Cloudflare Access)
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '20'
-
-      - name: Install Windmill CLI (Official NPM)
-        run: npm install -g windmill-cli
-
-      - name: Sync to Windmill
-        env:
-          WMILL_TOKEN: ${{ secrets.WMILL_TOKEN }}
-          CF_ID: ${{ secrets.CLOUDFLARE_CLIENT_ID }}
-          CF_SECRET: ${{ secrets.CLOUDFLARE_CLIENT_SECRET }}
+      - name: Test Cloudflare Access connectivity
         run: |
-          # 1. Clean Variables
-          CLEAN_ID=$(echo "$CF_ID" | tr -d '[:space:]')
-          CLEAN_SECRET=$(echo "$CF_SECRET" | tr -d '[:space:]')
+          echo "Testing connectivity to Windmill through Cloudflare Access..."
 
-          # 2. Set Headers (Covering ALL formats to be safe)
-          # Format A: JSON (Used by some versions)
-          export WMILL_HEADERS="{\"CF-Access-Client-Id\": \"$CLEAN_ID\", \"CF-Access-Client-Secret\": \"$CLEAN_SECRET\"}"
-          # Format B: String (Used by others)
-          export HEADERS="CF-Access-Client-Id:$CLEAN_ID,CF-Access-Client-Secret:$CLEAN_SECRET"
+          response=$(curl -s -w "\n%{http_code}" \
+            -H "CF-Access-Client-Id: ${{ secrets.CLOUDFLARE_CLIENT_ID }}" \
+            -H "CF-Access-Client-Secret: ${{ secrets.CLOUDFLARE_CLIENT_SECRET }}" \
+            "${WINDMILL_URL}/api/version" 2>&1)
 
-          # 3. Configure Workspace
-          # We use the token to authenticate with Windmill itself
-          wmill workspace add homeops homeops https://windmill.dealsniperpro.io --token $WMILL_TOKEN
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
 
-          # 4. Push Code
-          cd windmill
-          wmill sync push
+          echo "HTTP Status: $http_code"
+          echo "Response Body: $body"
+
+          if [ "$http_code" -eq 200 ]; then
+            echo "✅ Successfully connected to Windmill through Cloudflare Access"
+          elif [ "$http_code" -eq 403 ]; then
+            echo "❌ Cloudflare Access denied (403 Forbidden)"
+            exit 1
+          else
+            echo "❌ Unexpected response code: $http_code"
+            exit 1
+          fi
+
+      - name: Authenticate with Windmill
+        run: |
+          echo "Authenticating with Windmill..."
+
+          login_response=$(curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -H "CF-Access-Client-Id: ${{ secrets.CLOUDFLARE_CLIENT_ID }}" \
+            -H "CF-Access-Client-Secret: ${{ secrets.CLOUDFLARE_CLIENT_SECRET }}" \
+            -d "{\"email\":\"${{ secrets.WINDMILL_EMAIL }}\",\"password\":\"${{ secrets.WINDMILL_PASSWORD }}\"}" \
+            "${WINDMILL_URL}/api/auth/login")
+
+          echo "Login response (first 100 chars): ${login_response:0:100}"
+
+          token=$(echo "$login_response" | jq -r '.token // empty')
+
+          if [ -z "$token" ]; then
+            echo "❌ Failed to get authentication token"
+            echo "Full response: $login_response"
+            exit 1
+          fi
+
+          echo "✅ Successfully authenticated"
+          echo "WINDMILL_TOKEN=$token" >> $GITHUB_ENV
+
+      - name: Sync scripts to Windmill using API
+        working-directory: ./windmill
+        run: |
+          echo "Syncing scripts to Windmill workspace: $WINDMILL_WORKSPACE"
+
+          # Find all TypeScript, Python, and Go files in f/ directory
+          find f -type f \( -name "*.ts" -o -name "*.py" -o -name "*.go" \) | while read script; do
+            echo "Processing: $script"
+
+            # Extract script path for Windmill (remove extension)
+            script_path=$(echo "$script" | sed 's/\.[^.]*$//')
+
+            # Read script content and escape for JSON
+            content=$(cat "$script" | jq -Rs .)
+
+            # Determine language from extension
+            if [[ "$script" == *.ts ]]; then
+              language="deno"
+            elif [[ "$script" == *.py ]]; then
+              language="python3"
+            elif [[ "$script" == *.go ]]; then
+              language="go"
+            fi
+
+            # Create/update script via API
+            echo "Syncing to path: $script_path (language: $language)"
+
+            response=$(curl -s -X POST \
+              -H "Authorization: Bearer $WINDMILL_TOKEN" \
+              -H "Content-Type: application/json" \
+              -H "CF-Access-Client-Id: ${{ secrets.CLOUDFLARE_CLIENT_ID }}" \
+              -H "CF-Access-Client-Secret: ${{ secrets.CLOUDFLARE_CLIENT_SECRET }}" \
+              -d "{
+                \"path\": \"$script_path\",
+                \"content\": $content,
+                \"summary\": \"Synced from GitHub Actions\",
+                \"language\": \"$language\"
+              }" \
+              "${WINDMILL_URL}/api/w/$WINDMILL_WORKSPACE/scripts/create")
+
+            # Check response
+            if echo "$response" | jq -e '.path' >/dev/null 2>&1; then
+              echo "✅ Successfully synced: $script_path"
+            else
+              echo "⚠️  Response: ${response:0:200}"
+            fi
+          done
+
+          echo "✅ Sync completed"
+
+      - name: Verify deployment
+        run: |
+          echo "Verifying scripts in workspace..."
+
+          scripts=$(curl -s \
+            -H "Authorization: Bearer $WINDMILL_TOKEN" \
+            -H "CF-Access-Client-Id: ${{ secrets.CLOUDFLARE_CLIENT_ID }}" \
+            -H "CF-Access-Client-Secret: ${{ secrets.CLOUDFLARE_CLIENT_SECRET }}" \
+            "${WINDMILL_URL}/api/w/$WINDMILL_WORKSPACE/scripts/list")
+
+          echo "Deployed scripts:"
+          echo "$scripts" | jq -r '.[] | .path' || echo "$scripts"
+
+          script_count=$(echo "$scripts" | jq '. | length' 2>/dev/null || echo "0")
+          echo "Total scripts: $script_count"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Windmill Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Workspace**: $WINDMILL_WORKSPACE" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL**: $WINDMILL_URL" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
