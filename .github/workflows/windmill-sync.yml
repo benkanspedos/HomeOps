@@ -47,3 +47,5 @@ jobs:
 
           # 3. Push Code
           wmill sync push
+          
+          # Force trigger fix
