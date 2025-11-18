@@ -1,0 +1,241 @@
+# Nightly Cleanup and Maintenance Workflow
+#
+# This workflow runs every night at 2 AM to perform routine maintenance tasks:
+# - Clean up old Docker images and containers
+# - Rotate log files
+# - Check system resources
+# - Generate daily health report
+#
+# Schedule: Daily at 2:00 AM (UTC)
+
+summary: "Nightly system cleanup and maintenance"
+
+description: |
+  Automated nightly maintenance workflow that keeps the system healthy.
+
+  Tasks performed:
+  1. Check system resources before maintenance
+  2. Clean up stopped Docker containers
+  3. Remove unused Docker images
+  4. Check disk space
+  5. Generate system health report
+  6. Send summary to Slack
+
+  Schedule: 0 2 * * * (daily at 2 AM UTC)
+
+# Schedule (cron format - runs at 2 AM daily)
+schedule: "0 2 * * *"
+
+# Steps in the workflow
+steps:
+  # Step 1: Pre-maintenance system check
+  - id: pre_check
+    summary: "Check system resources before maintenance"
+    description: "Baseline resource usage before starting cleanup"
+
+    script:
+      path: platform/check-system-resources
+      language: typescript
+
+  # Step 2: Clean up stopped Docker containers
+  - id: cleanup_containers
+    summary: "Remove stopped Docker containers"
+    description: "Removes containers that have been stopped for more than 24 hours"
+
+    script:
+      language: typescript
+      content: |
+        import { exec } from 'child_process';
+        import { promisify } from 'util';
+
+        const execAsync = promisify(exec);
+
+        export async function main() {
+          console.log('Cleaning up stopped Docker containers...');
+
+          try {
+            // List stopped containers (older than 24 hours)
+            const { stdout: listOutput } = await execAsync(
+              'docker ps -a --filter "status=exited" --format "{{.ID}}|{{.Names}}|{{.Status}}"'
+            );
+
+            const stoppedContainers = listOutput
+              .trim()
+              .split('\n')
+              .filter(line => line.length > 0);
+
+            if (stoppedContainers.length === 0) {
+              console.log('No stopped containers to clean up');
+              return {
+                removed: 0,
+                containers: [],
+                space_freed: '0 MB'
+              };
+            }
+
+            console.log(`Found ${stoppedContainers.length} stopped container(s)`);
+
+            // Remove stopped containers
+            const { stdout: removeOutput } = await execAsync(
+              'docker container prune -f --filter "until=24h"'
+            );
+
+            // Parse space freed
+            const spaceMatch = removeOutput.match(/Total reclaimed space: (.+)/);
+            const spaceFeed = spaceMatch ? spaceMatch[1] : '0 MB';
+
+            console.log(`✅ Cleaned up ${stoppedContainers.length} container(s)`);
+            console.log(`Space freed: ${spaceFeed}`);
+
+            return {
+              removed: stoppedContainers.length,
+              containers: stoppedContainers.map(c => c.split('|')[1]),
+              space_freed: spaceFeed
+            };
+          } catch (error) {
+            console.error('Error cleaning up containers:', error);
+            throw error;
+          }
+        }
+
+  # Step 3: Clean up unused Docker images
+  - id: cleanup_images
+    summary: "Remove unused Docker images"
+    description: "Removes dangling and unused images to free up disk space"
+
+    script:
+      language: typescript
+      content: |
+        import { exec } from 'child_process';
+        import { promisify } from 'util';
+
+        const execAsync = promisify(exec);
+
+        export async function main() {
+          console.log('Cleaning up unused Docker images...');
+
+          try {
+            // Remove dangling images
+            const { stdout } = await execAsync('docker image prune -af --filter "until=72h"');
+
+            // Parse output
+            const spaceMatch = stdout.match(/Total reclaimed space: (.+)/);
+            const spaceFeed = spaceMatch ? spaceMatch[1] : '0 MB';
+
+            console.log(`✅ Docker image cleanup complete`);
+            console.log(`Space freed: ${spaceFeed}`);
+
+            return {
+              space_freed: spaceFeed,
+              timestamp: new Date().toISOString()
+            };
+          } catch (error) {
+            console.error('Error cleaning up images:', error);
+            throw error;
+          }
+        }
+
+  # Step 4: Post-maintenance system check
+  - id: post_check
+    summary: "Check system resources after maintenance"
+    description: "Verify that cleanup improved system health"
+
+    script:
+      path: platform/check-system-resources
+      language: typescript
+
+  # Step 5: Generate maintenance report
+  - id: generate_report
+    summary: "Generate nightly maintenance report"
+    description: "Summarizes maintenance activities and system health"
+
+    script:
+      language: typescript
+      content: |
+        export async function main(
+          preCheck: any,
+          containerCleanup: any,
+          imageCleanup: any,
+          postCheck: any
+        ) {
+          const report = {
+            date: new Date().toLocaleDateString(),
+            timestamp: new Date().toISOString(),
+
+            system_resources: {
+              before: {
+                cpu: `${preCheck.cpu.usage}% [${preCheck.cpu.status}]`,
+                memory: `${preCheck.memory.percentage}% [${preCheck.memory.status}]`,
+                disk: `${preCheck.disk.percentage}% [${preCheck.disk.status}]`
+              },
+              after: {
+                cpu: `${postCheck.cpu.usage}% [${postCheck.cpu.status}]`,
+                memory: `${postCheck.memory.percentage}% [${postCheck.memory.status}]`,
+                disk: `${postCheck.disk.percentage}% [${postCheck.disk.status}]`
+              }
+            },
+
+            cleanup: {
+              containers_removed: containerCleanup.removed,
+              containers_space_freed: containerCleanup.space_freed,
+              images_space_freed: imageCleanup.space_freed
+            },
+
+            disk_improvement: {
+              before: preCheck.disk.percentage,
+              after: postCheck.disk.percentage,
+              freed: preCheck.disk.percentage - postCheck.disk.percentage
+            }
+          };
+
+          console.log('=== Nightly Maintenance Report ===');
+          console.log(JSON.stringify(report, null, 2));
+
+          return report;
+        }
+
+    args:
+      preCheck: ${{ steps.pre_check.result }}
+      containerCleanup: ${{ steps.cleanup_containers.result }}
+      imageCleanup: ${{ steps.cleanup_images.result }}
+      postCheck: ${{ steps.post_check.result }}
+
+  # Step 6: Send report to Slack
+  - id: send_report
+    summary: "Send maintenance report to Slack"
+    description: "Notifies team of nightly maintenance completion"
+
+    script:
+      path: integrations/send-slack-alert
+      language: typescript
+
+    args:
+      message: "Nightly maintenance completed successfully"
+      severity: "info"
+      details: ${{ steps.generate_report.result }}
+
+# Workflow metadata
+tags:
+  - maintenance
+  - cleanup
+  - scheduled
+  - nightly
+
+# Failure handling
+on_failure:
+  script:
+    language: typescript
+    content: |
+      export async function main(error: any) {
+        console.error('Nightly maintenance workflow FAILED:', error);
+
+        return {
+          failed: true,
+          error: error.message,
+          timestamp: new Date().toISOString()
+        };
+      }
+
+# Performance settings
+timeout: 600  # 10 minutes max for entire workflow
+retry_on_failure: 0  # Don't retry maintenance tasks automatically

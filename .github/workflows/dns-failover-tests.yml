@@ -1,0 +1,564 @@
+name: DNS Failover Testing Suite
+
+on:
+  push:
+    branches: [ main, develop, sprint-* ]
+    paths:
+      - 'backend/src/services/dns-*.ts'
+      - 'backend/src/api/dns/**'
+      - 'backend/tests/**/*dns*'
+      - 'backend/package*.json'
+      - '.github/workflows/dns-failover-tests.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'backend/src/services/dns-*.ts'
+      - 'backend/src/api/dns/**'
+      - 'backend/tests/**/*dns*'
+      - 'backend/package*.json'
+  schedule:
+    # Run performance and chaos tests nightly at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of tests to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - unit
+          - integration
+          - e2e
+          - performance
+          - chaos
+      test_environment:
+        description: 'Test environment'
+        required: true
+        default: 'ci'
+        type: choice
+        options:
+          - ci
+          - staging
+          - local
+
+env:
+  NODE_VERSION: '20'
+  CACHE_KEY_PREFIX: 'homeops-dns-tests'
+
+jobs:
+  # Unit Tests - Fast feedback
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule' || github.event.inputs.test_type == 'all' || github.event.inputs.test_type == 'unit'
+    
+    strategy:
+      matrix:
+        node-version: ['18', '20', '21']
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+          
+      - name: Install dependencies
+        working-directory: ./backend
+        run: npm ci
+        
+      - name: Run unit tests
+        working-directory: ./backend
+        run: npm run test:dns:unit
+        env:
+          NODE_ENV: test
+          CI: true
+          
+      - name: Upload unit test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-results-node-${{ matrix.node-version }}
+          path: |
+            backend/test-results/
+            backend/coverage/
+          retention-days: 30
+          
+      - name: Comment PR with unit test results
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request' && matrix.node-version == '20'
+        with:
+          script: |
+            const fs = require('fs');
+            try {
+              const results = JSON.parse(fs.readFileSync('backend/test-results/test-results.json', 'utf8'));
+              const passed = results.testResults.filter(r => r.status === 'passed').length;
+              const failed = results.testResults.filter(r => r.status === 'failed').length;
+              
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `## 🧪 Unit Test Results\n\n✅ Passed: ${passed}\n❌ Failed: ${failed}\n\n[View detailed results](${context.payload.pull_request.html_url}/checks)`
+              });
+            } catch (error) {
+              console.log('Could not read test results:', error);
+            }
+
+  # Integration Tests - Database and external dependencies
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule' || github.event.inputs.test_type == 'all' || github.event.inputs.test_type == 'integration'
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: homeops
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: homeops_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+          
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+          
+      timescaledb:
+        image: timescale/timescaledb:latest-pg15
+        env:
+          POSTGRES_USER: homeops
+          POSTGRES_PASSWORD: homeops123
+          POSTGRES_DB: metrics
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+          
+      - name: Install dependencies
+        working-directory: ./backend
+        run: npm ci
+        
+      - name: Wait for services to be ready
+        run: |
+          timeout 60 bash -c 'until nc -z localhost 5432; do sleep 1; done'
+          timeout 60 bash -c 'until nc -z localhost 6379; do sleep 1; done'
+          timeout 60 bash -c 'until nc -z localhost 5433; do sleep 1; done'
+          
+      - name: Run database migrations
+        working-directory: ./backend
+        run: |
+          # Run any necessary database setup
+          echo "Setting up test databases..."
+        env:
+          DATABASE_URL: postgresql://homeops:password@localhost:5432/homeops_test
+          TIMESCALE_URL: postgresql://homeops:homeops123@localhost:5433/metrics
+          
+      - name: Run integration tests
+        working-directory: ./backend
+        run: npm run test:dns:integration
+        env:
+          NODE_ENV: test
+          CI: true
+          DATABASE_URL: postgresql://homeops:password@localhost:5432/homeops_test
+          TIMESCALE_URL: postgresql://homeops:homeops123@localhost:5433/metrics
+          REDIS_URL: redis://localhost:6379/1
+          
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: |
+            backend/test-results/
+            backend/coverage/
+          retention-days: 30
+
+  # End-to-End Tests - Full system testing
+  e2e-tests:
+    name: End-to-End Tests
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule' || github.event.inputs.test_type == 'all' || github.event.inputs.test_type == 'e2e'
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: homeops
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: homeops_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+          
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+          
+      timescaledb:
+        image: timescale/timescaledb:latest-pg15
+        env:
+          POSTGRES_USER: homeops
+          POSTGRES_PASSWORD: homeops123
+          POSTGRES_DB: metrics
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+          
+      - name: Install dependencies
+        working-directory: ./backend
+        run: npm ci
+        
+      - name: Build application
+        working-directory: ./backend
+        run: npm run build
+        
+      - name: Start application in background
+        working-directory: ./backend
+        run: |
+          npm run start:failover &
+          echo $! > server.pid
+        env:
+          NODE_ENV: test
+          PORT: 3001
+          DATABASE_URL: postgresql://homeops:password@localhost:5432/homeops_test
+          TIMESCALE_URL: postgresql://homeops:homeops123@localhost:5433/metrics
+          REDIS_URL: redis://localhost:6379/1
+          
+      - name: Wait for application to start
+        run: |
+          timeout 60 bash -c 'until curl -f http://localhost:3001/api/dns/failover/status; do sleep 2; done'
+          
+      - name: Run E2E tests
+        working-directory: ./backend
+        run: npm run test:dns:e2e
+        env:
+          NODE_ENV: test
+          CI: true
+          E2E_BASE_URL: http://localhost:3001
+          
+      - name: Stop application
+        if: always()
+        working-directory: ./backend
+        run: |
+          if [ -f server.pid ]; then
+            kill $(cat server.pid) || true
+            rm server.pid
+          fi
+          
+      - name: Upload E2E test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-test-results
+          path: |
+            backend/test-results/
+            backend/coverage/
+          retention-days: 30
+
+  # Performance Tests - Benchmark critical operations
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event.inputs.test_type == 'all' || github.event.inputs.test_type == 'performance'
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: homeops
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: homeops_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+          
+      timescaledb:
+        image: timescale/timescaledb:latest-pg15
+        env:
+          POSTGRES_USER: homeops
+          POSTGRES_PASSWORD: homeops123
+          POSTGRES_DB: metrics
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+          
+      - name: Install dependencies
+        working-directory: ./backend
+        run: npm ci
+        
+      - name: Run performance tests
+        working-directory: ./backend
+        run: npm run test:dns:performance
+        env:
+          NODE_ENV: test
+          CI: true
+          DATABASE_URL: postgresql://homeops:password@localhost:5432/homeops_test
+          TIMESCALE_URL: postgresql://homeops:homeops123@localhost:5433/metrics
+          
+      - name: Upload performance test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: performance-test-results
+          path: |
+            backend/test-results/
+            backend/benchmark-results/
+          retention-days: 90
+          
+      - name: Check performance regression
+        working-directory: ./backend
+        run: |
+          # Compare with baseline performance metrics
+          echo "Analyzing performance regression..."
+          # This would compare current results with stored baselines
+
+  # Chaos Engineering Tests - Reliability under adverse conditions
+  chaos-tests:
+    name: Chaos Engineering Tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event.inputs.test_type == 'all' || github.event.inputs.test_type == 'chaos'
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: homeops
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: homeops_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+          
+      timescaledb:
+        image: timescale/timescaledb:latest-pg15
+        env:
+          POSTGRES_USER: homeops
+          POSTGRES_PASSWORD: homeops123
+          POSTGRES_DB: metrics
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+          
+      - name: Install dependencies
+        working-directory: ./backend
+        run: npm ci
+        
+      - name: Run chaos engineering tests
+        working-directory: ./backend
+        run: npm run test:dns:chaos
+        env:
+          NODE_ENV: test
+          CI: true
+          DATABASE_URL: postgresql://homeops:password@localhost:5432/homeops_test
+          TIMESCALE_URL: postgresql://homeops:homeops123@localhost:5433/metrics
+          CHAOS_MONKEY_ENABLED: true
+          
+      - name: Upload chaos test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chaos-test-results
+          path: |
+            backend/test-results/
+          retention-days: 30
+
+  # Security and Vulnerability Tests
+  security-tests:
+    name: Security Tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+          
+      - name: Install dependencies
+        working-directory: ./backend
+        run: npm ci
+        
+      - name: Run security audit
+        working-directory: ./backend
+        run: npm audit --audit-level high
+        
+      - name: Run dependency vulnerability scan
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: |
+          cd backend
+          npx audit-ci --config audit-ci.json
+        continue-on-error: true
+
+  # Test Coverage Report
+  coverage-report:
+    name: Coverage Report
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests, e2e-tests]
+    if: always() && (needs.unit-tests.result == 'success' || needs.integration-tests.result == 'success' || needs.e2e-tests.result == 'success')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '*test-results*'
+          path: ./coverage-reports/
+          
+      - name: Merge coverage reports
+        run: |
+          # Merge all coverage reports
+          echo "Merging coverage reports..."
+          
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          directory: ./coverage-reports/
+          flags: dns-failover
+          name: dns-failover-coverage
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # Notification and Reporting
+  notify:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests, e2e-tests, performance-tests, chaos-tests, security-tests]
+    if: always() && github.event_name == 'schedule'
+    
+    steps:
+      - name: Notify Slack
+        uses: 8398a7/action-slack@v3
+        if: always()
+        with:
+          status: ${{ job.status }}
+          channel: '#homeops-alerts'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          fields: repo,message,commit,author,action,eventName,ref,workflow
+          custom_payload: |
+            {
+              text: "DNS Failover Test Suite Results",
+              attachments: [{
+                color: '${{ job.status }}' === 'success' ? 'good' : 'danger',
+                fields: [{
+                  title: "Project",
+                  value: "HomeOps DNS Failover",
+                  short: true
+                }, {
+                  title: "Status",
+                  value: "${{ job.status }}",
+                  short: true
+                }, {
+                  title: "Branch",
+                  value: "${process.env.AS_REF}",
+                  short: true
+                }]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

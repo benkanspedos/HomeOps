@@ -1,0 +1,351 @@
+# Windmill Platform Configuration
+# HomeOps Infrastructure Orchestration
+#
+# This configuration defines the platform-level Windmill workspace setup,
+# including environment variables, resource definitions, and workflow schedules.
+#
+# Workspace: homeops-platform
+# Purpose: Infrastructure monitoring, deployment orchestration, system maintenance
+
+# =============================================================================
+# WORKSPACE CONFIGURATION
+# =============================================================================
+
+workspace:
+  name: homeops-platform
+  description: "HomeOps platform-level infrastructure orchestration"
+  auto_invite_domain: null  # Set if you want auto-invite by email domain
+  auto_add: true            # Automatically add new scripts/flows on sync
+
+# =============================================================================
+# ENVIRONMENT VARIABLES
+# =============================================================================
+# These are workspace-level environment variables available to all workflows.
+# DO NOT store secrets here - use Windmill Resources or Variables instead!
+
+environment:
+  # Platform identification
+  PLATFORM_NAME: "HomeOps"
+  PLATFORM_ENV: "production"  # or "staging", "development"
+
+  # Timezone for scheduled workflows
+  TZ: "America/New_York"
+
+  # Logging configuration
+  LOG_LEVEL: "info"  # debug, info, warn, error
+  LOG_FORMAT: "json"
+
+  # Docker configuration
+  DOCKER_HOST: "unix:///var/run/docker.sock"
+  DOCKER_COMPOSE_PROJECT_NAME: "homeops"
+
+  # Database configuration (connection strings in Resources)
+  DB_CONNECTION_POOL_SIZE: "10"
+  DB_CONNECTION_TIMEOUT: "30000"
+
+  # Monitoring thresholds
+  HEALTH_CHECK_TIMEOUT: "30"  # seconds
+  ALERT_COOLDOWN_PERIOD: "300"  # seconds (5 minutes)
+
+  # Notification channels (webhook URLs in Resources)
+  ENABLE_SLACK_NOTIFICATIONS: "true"
+  ENABLE_EMAIL_NOTIFICATIONS: "false"
+
+  # Maintenance windows
+  MAINTENANCE_WINDOW_START: "02:00"  # 2 AM
+  MAINTENANCE_WINDOW_DURATION: "120"  # minutes
+
+  # Retention policies
+  LOG_RETENTION_DAYS: "30"
+  BACKUP_RETENTION_DAYS: "90"
+  METRICS_RETENTION_DAYS: "365"
+
+# =============================================================================
+# RESOURCE DEFINITIONS
+# =============================================================================
+# Resources are secure credentials and connection strings.
+# Actual values are stored in Windmill UI, not in this config file!
+
+resources:
+  # Database connections
+  - path: platform/postgres_main
+    resource_type: postgresql
+    description: "Main PostgreSQL database connection"
+
+  - path: platform/redis_cache
+    resource_type: redis
+    description: "Redis cache connection"
+
+  - path: platform/timescaledb_metrics
+    resource_type: postgresql
+    description: "TimescaleDB metrics database"
+
+  # External service integrations
+  - path: platform/slack_webhook
+    resource_type: webhook
+    description: "Slack webhook for platform notifications"
+
+  - path: platform/github_api_token
+    resource_type: api_key
+    description: "GitHub API token for deployment operations"
+
+  # Docker and infrastructure
+  - path: platform/docker_registry_credentials
+    resource_type: docker_registry
+    description: "Docker registry authentication"
+
+# =============================================================================
+# WORKFLOW SCHEDULES
+# =============================================================================
+# Scheduled workflows with cron expressions (UTC timezone)
+
+schedules:
+  # High-frequency monitoring (every 5 minutes)
+  - name: "Docker Health Monitoring"
+    flow: flows/monitoring/docker-health-check.yaml
+    schedule: "*/5 * * * *"
+    enabled: true
+
+  - name: "System Resource Monitoring"
+    flow: flows/monitoring/system-resources-check.yaml
+    schedule: "*/5 * * * *"
+    enabled: true
+
+  # Moderate frequency (every 15 minutes)
+  - name: "Service Availability Check"
+    flow: flows/monitoring/service-availability.yaml
+    schedule: "*/15 * * * *"
+    enabled: true
+
+  # Hourly tasks
+  - name: "Metrics Aggregation"
+    flow: flows/monitoring/aggregate-metrics.yaml
+    schedule: "0 * * * *"
+    enabled: true
+
+  - name: "Log Rotation Check"
+    flow: flows/maintenance/check-log-rotation.yaml
+    schedule: "0 * * * *"
+    enabled: true
+
+  # Daily maintenance (2 AM)
+  - name: "Nightly Database Maintenance"
+    flow: flows/maintenance/database-maintenance.yaml
+    schedule: "0 2 * * *"
+    enabled: true
+
+  - name: "Docker Image Cleanup"
+    flow: flows/maintenance/docker-image-cleanup.yaml
+    schedule: "0 2 * * *"
+    enabled: true
+
+  - name: "System Backup"
+    flow: flows/maintenance/system-backup.yaml
+    schedule: "30 2 * * *"
+    enabled: true
+
+  - name: "Security Audit"
+    flow: flows/monitoring/security-audit.yaml
+    schedule: "0 3 * * *"
+    enabled: true
+
+  # Weekly tasks (Sunday 4 AM)
+  - name: "Weekly System Report"
+    flow: flows/monitoring/weekly-system-report.yaml
+    schedule: "0 4 * * 0"
+    enabled: true
+
+  - name: "Dependency Update Check"
+    flow: flows/maintenance/check-dependency-updates.yaml
+    schedule: "0 4 * * 0"
+    enabled: true
+
+  # Monthly tasks (1st of month, 5 AM)
+  - name: "Monthly Backup Verification"
+    flow: flows/maintenance/verify-backups.yaml
+    schedule: "0 5 1 * *"
+    enabled: true
+
+# =============================================================================
+# EVENT TRIGGERS
+# =============================================================================
+# Event-driven workflows triggered by external events or database changes
+
+event_triggers:
+  # Docker events
+  - name: "Docker Container Failure"
+    source: "docker_events"
+    filter: "status == 'die' || status == 'oom'"
+    flow: flows/infrastructure/handle-container-failure.yaml
+    enabled: true
+
+  # Database triggers
+  - name: "Critical Database Alert"
+    source: "timescaledb_trigger"
+    table: "system_metrics"
+    condition: "cpu_usage > 90 OR memory_usage > 90"
+    flow: flows/monitoring/handle-critical-resource-usage.yaml
+    enabled: true
+
+  # Deployment events
+  - name: "Deployment Request"
+    source: "webhook"
+    path: "/deploy"
+    flow: flows/deployment/handle-deployment-request.yaml
+    enabled: true
+
+# =============================================================================
+# MONITORING & ALERTING
+# =============================================================================
+
+monitoring:
+  # Workflow execution monitoring
+  workflow_timeout_default: 300  # seconds
+  workflow_retry_attempts: 3
+  workflow_retry_delay: 60  # seconds
+
+  # Alert thresholds
+  thresholds:
+    cpu_usage: 80  # percentage
+    memory_usage: 85  # percentage
+    disk_usage: 90  # percentage
+    response_time: 5000  # milliseconds
+    error_rate: 5  # percentage
+
+  # Notification settings
+  notifications:
+    on_workflow_failure: true
+    on_threshold_breach: true
+    on_manual_trigger: false
+
+  # Alert routing
+  alert_channels:
+    critical: ["slack", "email"]
+    warning: ["slack"]
+    info: ["slack"]
+
+# =============================================================================
+# DEPLOYMENT SETTINGS
+# =============================================================================
+
+deployment:
+  # Automatic rollback on health check failure
+  auto_rollback: true
+  rollback_on_health_check_failure: true
+
+  # Health check settings
+  health_check_attempts: 3
+  health_check_interval: 30  # seconds
+  health_check_timeout: 10  # seconds
+
+  # Deployment strategies
+  default_strategy: "rolling"  # rolling, blue-green, canary
+
+  # Subproject deployment order (dependencies first)
+  deployment_order:
+    - "infrastructure"  # Docker, databases
+    - "backend"         # Backend services
+    - "frontend"        # Frontend applications
+    - "integrations"    # External integrations
+
+# =============================================================================
+# PERFORMANCE & SCALING
+# =============================================================================
+
+performance:
+  # Worker configuration
+  max_concurrent_workflows: 10
+  worker_memory_limit: "2GB"
+  worker_timeout: 600  # seconds
+
+  # Caching
+  enable_result_caching: true
+  cache_ttl: 3600  # seconds
+
+  # Rate limiting
+  rate_limit_per_user: 100  # requests per minute
+  rate_limit_per_ip: 200  # requests per minute
+
+# =============================================================================
+# SECURITY
+# =============================================================================
+
+security:
+  # Access control
+  require_approval_for:
+    - "deployment/deploy-to-production.yaml"
+    - "maintenance/delete-old-backups.yaml"
+
+  # Audit logging
+  audit_log_retention: 90  # days
+  log_sensitive_data: false
+
+  # Secrets management
+  rotate_secrets_reminder: 90  # days
+
+  # Network security
+  allowed_outbound_domains:
+    - "api.github.com"
+    - "slack.com"
+    - "docker.io"
+
+# =============================================================================
+# MAINTENANCE
+# =============================================================================
+
+maintenance:
+  # Automatic cleanup
+  auto_cleanup_old_runs: true
+  run_retention_days: 30
+
+  # Database maintenance
+  auto_vacuum: true
+  vacuum_schedule: "0 2 * * *"
+
+  # Resource cleanup
+  cleanup_unused_resources: false  # Manual cleanup only
+  cleanup_orphaned_files: true
+
+# =============================================================================
+# INTEGRATIONS
+# =============================================================================
+
+integrations:
+  # GitHub integration
+  github:
+    enabled: true
+    auto_deploy_on_merge: false  # Handled by GitHub Actions
+
+  # Slack integration
+  slack:
+    enabled: true
+    default_channel: "#homeops-alerts"
+
+  # Docker integration
+  docker:
+    enabled: true
+    auto_pull_images: false
+    image_registry: "ghcr.io"
+
+# =============================================================================
+# NOTES
+# =============================================================================
+#
+# Cron Expression Format:
+#   ┌───────────── minute (0 - 59)
+#   │ ┌───────────── hour (0 - 23)
+#   │ │ ┌───────────── day of month (1 - 31)
+#   │ │ │ ┌───────────── month (1 - 12)
+#   │ │ │ │ ┌───────────── day of week (0 - 6) (Sunday to Saturday)
+#   │ │ │ │ │
+#   * * * * *
+#
+# Examples:
+#   - "*/5 * * * *" = Every 5 minutes
+#   - "0 2 * * *" = Daily at 2 AM
+#   - "0 4 * * 0" = Sundays at 4 AM
+#   - "0 5 1 * *" = 1st of every month at 5 AM
+#
+# All times are in UTC unless TZ environment variable is set.
+#
+# =============================================================================

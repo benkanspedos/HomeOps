@@ -1,0 +1,170 @@
+# Docker Health Monitoring Workflow
+#
+# This workflow checks the health of all Docker containers and sends
+# alerts to Slack if any unhealthy containers are detected.
+#
+# Schedule: Every 5 minutes
+# Trigger: Scheduled (cron) or manual
+
+summary: "Monitor Docker container health and alert on failures"
+
+description: |
+  Comprehensive Docker container health monitoring workflow.
+
+  This workflow:
+  1. Checks health status of all running Docker containers
+  2. Identifies unhealthy, stopped, or starting containers
+  3. Sends critical alerts to Slack if issues are detected
+  4. Logs detailed information for troubleshooting
+
+  Schedule: */5 * * * * (every 5 minutes)
+
+# Schedule (cron format - UTC timezone)
+# */5 * * * * = Every 5 minutes
+schedule: "*/5 * * * *"
+
+# Steps in the workflow
+steps:
+  # Step 1: Check Docker container health
+  - id: check_health
+    summary: "Check health of all Docker containers"
+    description: "Uses Docker CLI to inspect container status and health"
+
+    # Reference to the script in windmill/scripts/platform/
+    script:
+      path: platform/check-docker-health
+      language: typescript
+
+    # Timeout for this step (30 seconds)
+    timeout: 30
+
+  # Step 2: Log results for monitoring
+  - id: log_results
+    summary: "Log health check results"
+    description: "Stores results for historical tracking"
+
+    script:
+      language: typescript
+      content: |
+        export async function main(healthData: any) {
+          console.log('=== Docker Health Check Results ===');
+          console.log(`Timestamp: ${healthData.timestamp}`);
+          console.log(`Total containers: ${healthData.total}`);
+          console.log(`Healthy: ${healthData.healthy.length}`);
+          console.log(`Unhealthy: ${healthData.unhealthy.length}`);
+
+          if (healthData.healthy.length > 0) {
+            console.log('\n✅ Healthy containers:');
+            healthData.healthy.forEach((c: any) => {
+              console.log(`  - ${c.name} (${c.id})`);
+            });
+          }
+
+          if (healthData.unhealthy.length > 0) {
+            console.log('\n⚠️  Unhealthy containers:');
+            healthData.unhealthy.forEach((c: any) => {
+              console.log(`  - ${c.name} (${c.id}): ${c.status}`);
+            });
+          }
+
+          return {
+            logged: true,
+            timestamp: new Date().toISOString()
+          };
+        }
+
+    # Pass output from previous step
+    args:
+      healthData: ${{ steps.check_health.result }}
+
+  # Step 3: Send alert if unhealthy containers found
+  # This step only runs if there are unhealthy containers
+  - id: send_alert
+    summary: "Send Slack alert for unhealthy containers"
+    description: "Notifies team via Slack when containers are unhealthy"
+
+    # Only run this step if unhealthy containers exist
+    if: ${{ steps.check_health.result.unhealthy.length > 0 }}
+
+    script:
+      path: integrations/send-slack-alert
+      language: typescript
+
+    args:
+      message: "${{ steps.check_health.result.unhealthy.length }} unhealthy Docker container(s) detected"
+      severity: "critical"
+      details:
+        unhealthy_count: ${{ steps.check_health.result.unhealthy.length }}
+        total_containers: ${{ steps.check_health.result.total }}
+        unhealthy_containers: ${{ steps.check_health.result.unhealthy }}
+        timestamp: ${{ steps.check_health.result.timestamp }}
+
+  # Step 4: Mark workflow as completed
+  - id: complete
+    summary: "Mark workflow as completed"
+
+    script:
+      language: typescript
+      content: |
+        export async function main(healthData: any, alertSent: any) {
+          const summary = {
+            workflow: 'docker-health-monitor',
+            status: healthData.unhealthy.length === 0 ? 'healthy' : 'unhealthy',
+            containers_checked: healthData.total,
+            issues_found: healthData.unhealthy.length,
+            alert_sent: healthData.unhealthy.length > 0,
+            timestamp: new Date().toISOString()
+          };
+
+          console.log('=== Workflow Complete ===');
+          console.log(JSON.stringify(summary, null, 2));
+
+          return summary;
+        }
+
+    args:
+      healthData: ${{ steps.check_health.result }}
+      alertSent: ${{ steps.send_alert.result || { success: false } }}
+
+# Workflow metadata
+tags:
+  - monitoring
+  - docker
+  - infrastructure
+  - health-check
+
+# Failure handling
+on_failure:
+  # If the workflow fails, send a critical alert
+  script:
+    language: typescript
+    content: |
+      export async function main(error: any) {
+        console.error('Docker health monitoring workflow FAILED:', error);
+
+        // Attempt to send failure alert (best effort)
+        try {
+          // Import Windmill client
+          const wmill = await import('windmill-client');
+
+          // Get Slack webhook
+          const slackWebhook = await wmill.getResource('platform/slack_webhook');
+
+          // Send simple failure notification
+          await fetch(slackWebhook.url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              text: `🚨 CRITICAL: Docker health monitoring workflow failed!\n\nError: ${error.message}\n\nTimestamp: ${new Date().toISOString()}`
+            })
+          });
+        } catch (alertError) {
+          console.error('Failed to send failure alert:', alertError);
+        }
+
+        return { failed: true, error: error.message };
+      }
+
+# Performance settings
+timeout: 120  # 2 minutes max for entire workflow
+retry_on_failure: 1  # Retry once if workflow fails

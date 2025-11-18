@@ -1,0 +1,102 @@
+# Windmill Infrastructure as Code - Automated Sync Pipeline
+#
+# This workflow automatically syncs the /windmill directory with the Windmill server
+# whenever changes are pushed to the 'main' branch. This ensures that our Git repository
+# remains the single source of truth for all orchestration workflows.
+#
+# IMPORTANT: This workflow syncs the ROOT-LEVEL windmill/ directory only.
+# Subproject windmill/ directories (e.g., financial-tracker/windmill/) are managed separately.
+
+name: 'Windmill IaC Sync'
+
+on:
+  push:
+    branches:
+      - 'main'
+    paths:
+      - 'windmill/**'  # Only trigger when root-level windmill/ directory changes
+  workflow_dispatch:    # Allow manual triggering for emergency syncs
+
+jobs:
+  sync:
+    name: 'Sync Platform Workflows to Windmill'
+    runs-on: ubuntu-latest
+
+    # Prevent concurrent syncs to avoid race conditions
+    concurrency:
+      group: windmill-sync
+      cancel-in-progress: false
+
+    steps:
+      - name: '📥 Check out repository'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better context
+
+      - name: '🔍 Validate Windmill configuration'
+        run: |
+          echo "Validating windmill directory structure..."
+          if [ ! -d "./windmill" ]; then
+            echo "❌ ERROR: windmill/ directory not found"
+            exit 1
+          fi
+
+          if [ ! -f "./windmill/windmill.config.yaml" ]; then
+            echo "⚠️  WARNING: windmill.config.yaml not found (optional)"
+          fi
+
+          echo "✅ Validation passed"
+
+      - name: '🚀 Sync to Windmill Platform Workspace'
+        uses: windmill-labs/wmill-action@v3
+        with:
+          # Windmill server URL and authentication token
+          # These are stored as GitHub Repository Secrets for security
+          wmill_url: ${{ secrets.WMILL_URL }}
+          wmill_token: ${{ secrets.WMILL_TOKEN }}
+
+          # Path to the windmill directory to sync
+          path: ./windmill
+
+          # Command to execute
+          command: sync push
+
+      - name: '✅ Sync Success Notification'
+        if: success()
+        run: |
+          echo "✅ Windmill platform workflows synced successfully!"
+          echo "🔗 Workspace: homeops-platform"
+          echo "📦 Synced from: ./windmill"
+          echo "🕒 Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+      - name: '❌ Sync Failure Notification'
+        if: failure()
+        run: |
+          echo "❌ Windmill sync FAILED!"
+          echo "🔍 Please check the logs above for details"
+          echo "💡 Common issues:"
+          echo "   - Incorrect WMILL_URL or WMILL_TOKEN"
+          echo "   - Windmill server unreachable"
+          echo "   - Invalid workflow syntax in YAML files"
+          echo "   - Missing required resources or variables"
+          exit 1
+
+      # Optional: Notify on Slack (uncomment when Slack webhook is configured)
+      # - name: '📢 Notify Slack on Failure'
+      #   if: failure()
+      #   uses: slackapi/slack-github-action@v1
+      #   with:
+      #     webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+      #     payload: |
+      #       {
+      #         "text": "❌ Windmill IaC Sync Failed",
+      #         "blocks": [
+      #           {
+      #             "type": "section",
+      #             "text": {
+      #               "type": "mrkdwn",
+      #               "text": "Windmill platform workflow sync failed!\n*Repository:* ${{ github.repository }}\n*Branch:* ${{ github.ref_name }}\n*Commit:* ${{ github.sha }}\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"
+      #             }
+      #           }
+      #         ]
+      #       }
