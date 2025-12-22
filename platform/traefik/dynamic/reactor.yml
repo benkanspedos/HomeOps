@@ -1,0 +1,70 @@
+# Traefik Dynamic Configuration for ATOM V7 Reactor War Room
+# Routes reactor.dealsniperpro.io to financial-tracker backend
+# Serves ML prediction API and bubble chart data
+
+http:
+  middlewares:
+    # CORS headers for Reactor API (war-room frontend)
+    reactor-cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+          - PUT
+          - DELETE
+        accessControlAllowHeaders:
+          - Content-Type
+          - Authorization
+          - X-Requested-With
+        accessControlAllowOriginList:
+          - "https://war-room.dealsniperpro.io"
+          - "https://reactor.dealsniperpro.io"
+          - "*"
+        accessControlMaxAge: 86400
+        addVaryHeader: true
+
+    # Caching middleware for probability field (4-second polling)
+    reactor-cache:
+      cacheMiddleware:
+        cacheKey:
+          headers:
+            - If-None-Match
+        httpCacheDuration: 4s
+
+    # Chain for Reactor API routes (CORS + caching)
+    reactor-api:
+      chain:
+        middlewares:
+          - reactor-cors
+          - reactor-cache
+
+  routers:
+    # Reactor API router - all /api/v7/reactor/* endpoints
+    reactor-api-router:
+      rule: "Host(`reactor.dealsniperpro.io`) && PathPrefix(`/api/v7/reactor`)"
+      service: reactor-service
+      entryPoints:
+        - web
+        - websecure
+      middlewares:
+        - reactor-api
+      priority: 100
+
+    # Fallback for other paths (health checks, etc)
+    reactor-router:
+      rule: "Host(`reactor.dealsniperpro.io`)"
+      service: reactor-service
+      entryPoints:
+        - web
+        - websecure
+      middlewares:
+        - secure-external@file
+      priority: 1
+
+  services:
+    # Financial tracker backend serving reactor APIs
+    reactor-service:
+      loadBalancer:
+        servers:
+          - url: "http://financial-tracker:8891"
