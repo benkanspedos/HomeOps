@@ -24,26 +24,18 @@ http:
         accessControlMaxAge: 86400
         addVaryHeader: true
 
-    # Caching middleware for probability field (4-second polling)
-    reactor-cache:
-      cacheMiddleware:
-        cacheKey:
-          headers:
-            - If-None-Match
-        httpCacheDuration: 4s
-
-    # Chain for Reactor API routes (CORS + caching)
+    # Chain for Reactor API routes (CORS only)
+    # Note: HTTP caching handled by Cloudflare + browser
     reactor-api:
       chain:
         middlewares:
           - reactor-cors
-          - reactor-cache
 
   routers:
     # Reactor API router - all /api/v7/reactor/* endpoints
     reactor-api-router:
       rule: "Host(`reactor.dealsniperpro.io`) && PathPrefix(`/api/v7/reactor`)"
-      service: reactor-service
+      service: reactor-backend
       entryPoints:
         - web
         - websecure
@@ -58,13 +50,28 @@ http:
       entryPoints:
         - web
         - websecure
-      middlewares:
-        - secure-external@file
       priority: 1
 
   services:
-    # Financial tracker backend serving reactor APIs
+    # Frontend React app (Vite) - runs in container on homeops-network
+    # NO PORTS - accessed only through Traefik
+    # Docker Compose labels: traefik.enable=true
     reactor-service:
       loadBalancer:
         servers:
+          - url: "http://reactor-dashboard:80"
+        healthCheck:
+          path: "/"
+          interval: "30s"
+          timeout: "5s"
+
+    # Backend API service for /api/v7/reactor routes
+    # Runs on financial-tracker container, port 8891 (internal only)
+    reactor-backend:
+      loadBalancer:
+        servers:
           - url: "http://financial-tracker:8891"
+        healthCheck:
+          path: "/api/status"
+          interval: "30s"
+          timeout: "5s"

@@ -181,6 +181,33 @@ services:
     networks:
       - homeops-network
 
+  # Reactor War Room Dashboard - ATOM V7 Grid Edition
+  # Subdomain-first: reactor.dealsniperpro.io
+  # NO PORTS - accessed only through Traefik reverse proxy
+  # Frontend: React 18 + Vite (Grid Edition, 200-stock table)
+  reactor-dashboard:
+    image: nginx:alpine
+    container_name: reactor-dashboard
+    restart: unless-stopped
+    networks:
+      - homeops-network
+    labels:
+      # Traefik configuration (no expose/ports needed)
+      - "traefik.enable=true"
+      - "traefik.http.routers.reactor-router.rule=Host(`reactor.dealsniperpro.io`)"
+      - "traefik.http.services.reactor-service.loadbalancer.server.port=80"
+      # Service metadata
+      - "homeops.service=dashboard"
+      - "homeops.subsystem=reactor"
+      - "homeops.priority=high"
+      - "homeops.deploy=subdomain"
+    volumes:
+      # Mount the pre-built dist folder
+      - ./subprojects/financial-tracker/src/dashboard/war-room/dist:/usr/share/nginx/html:ro
+    environment:
+      - NGINX_HOST=reactor.dealsniperpro.io
+      - NGINX_PORT=80
+
 volumes:
   redis_data:
     driver: local
