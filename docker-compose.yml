@@ -181,6 +181,50 @@ services:
     networks:
       - homeops-network
 
+  # Reactor War Room Backend API - ATOM V7
+  # Serves /api/v7/reactor/quant-grid and other endpoints
+  # NO PORTS - accessed only through Traefik reverse proxy
+  # Backend: TypeScript/Express on port 8891 (internal only)
+  financial-tracker:
+    build:
+      context: ./subprojects/financial-tracker
+      dockerfile: Dockerfile
+    container_name: financial-tracker
+    restart: unless-stopped
+    networks:
+      - homeops-network
+    labels:
+      # Traefik configuration for /api/v7/reactor routes
+      - "traefik.enable=true"
+      - "traefik.http.routers.reactor-api-router.rule=Host(`reactor.dealsniperpro.io`) && PathPrefix(`/api/v7/reactor`)"
+      - "traefik.http.services.reactor-backend.loadbalancer.server.port=8891"
+      - "traefik.http.middlewares.reactor-cors.headers.accessControlAllowMethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.reactor-cors.headers.accessControlAllowHeaders=Content-Type,Authorization"
+      - "traefik.http.routers.reactor-api-router.middlewares=reactor-cors"
+      # Service metadata
+      - "homeops.service=api"
+      - "homeops.subsystem=reactor"
+      - "homeops.priority=high"
+      - "homeops.deploy=subdomain"
+    environment:
+      - NODE_ENV=production
+      - PORT=8891
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-homeops123}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - ALPACA_API_KEY=${ALPACA_API_KEY}
+      - ALPACA_API_SECRET=${ALPACA_API_SECRET}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - OLLAMA_HOST=http://host.docker.internal:11434
+    volumes:
+      # Mount source for hot reload (optional)
+      - ./subprojects/financial-tracker/src:/app/src:ro
+
   # Reactor War Room Dashboard - ATOM V7 Grid Edition
   # Subdomain-first: reactor.dealsniperpro.io
   # NO PORTS - accessed only through Traefik reverse proxy
