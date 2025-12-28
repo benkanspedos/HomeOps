@@ -1,0 +1,54 @@
+# Traefik Dynamic Configuration for Financial Tracker & MLflow
+# Routes:
+#   - chart.dealsniperpro.io → financial-tracker:8891
+#   - charts.dealsniperpro.io → financial-tracker:8891
+#   - charts.dealsniperpro.io/mlflow → mlflow:5000 (path-based routing)
+# Security: Rate limiting + security headers
+
+http:
+  routers:
+    chart-router:
+      rule: "Host(`chart.dealsniperpro.io`)"
+      service: chart-service
+      entryPoints:
+        - web
+        - websecure
+      middlewares:
+        - rate-limit-standard@file
+        - security-headers@file
+
+    # Legacy plural version also works
+    charts-router:
+      rule: "Host(`charts.dealsniperpro.io`)"
+      service: chart-service
+      entryPoints:
+        - web
+        - websecure
+      middlewares:
+        - rate-limit-standard@file
+        - security-headers@file
+
+    # MLflow Tracking Server - Path-based routing
+    # Note: No stripPrefix needed - MLflow is configured with --static-prefix=/mlflow
+    charts-mlflow-router:
+      rule: "Host(`charts.dealsniperpro.io`) && PathPrefix(`/mlflow`)"
+      service: charts-mlflow-service
+      entryPoints:
+        - web
+        - websecure
+      priority: 100
+      middlewares:
+        - rate-limit-standard@file
+
+  services:
+    chart-service:
+      loadBalancer:
+        servers:
+          - url: "http://financial-tracker:8891"
+
+    charts-mlflow-service:
+      loadBalancer:
+        servers:
+          - url: "http://homeops-mlflow:5000"
+
+  # Note: mlflow-stripprefix removed - MLflow uses --static-prefix=/mlflow instead
